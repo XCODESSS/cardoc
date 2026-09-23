@@ -73,7 +73,7 @@ type CarDocument = { id: string; userId: string; vehicleId: string | null;
 
 ## Execution protocol
 
-For each task, give one fresh worker only that task's files and interfaces; never let two workers edit the same file concurrently. The worker writes the focused test before implementation when practical, records the failing result, implements the minimum, runs the focused test, `npx expo lint`, and `npx tsc --noEmit` (once available), and commits only its files. The coordinator reviews the diff, test output, and scope before assigning the next task. If a required device, Supabase project, or Docker service is unavailable, record the blocked acceptance check; continue with independent tasks and do not mark the gate passed.
+For each task, give one fresh worker only that task's files and interfaces; never let two workers edit the same file concurrently. The worker writes the focused test before implementation when practical, records the failing result, implements the minimum, runs the focused test, `npx expo lint`, and `npx tsc --noEmit` (once available), and commits only its files. The coordinator reviews the diff, test output, and scope before assigning the next task. Execute Task 6's cache contract before Task 5's upload integration, because Task 5 must call that cache; keep their task numbers aligned with the supplied spec. If a required device, Supabase project, or Docker service is unavailable, record the blocked acceptance check; continue with independent tasks and do not mark the gate passed.
 
 ### Task 1: Bootstrap Cardoc
 
@@ -122,7 +122,7 @@ For each task, give one fresh worker only that task's files and interfaces; neve
 
 ### Task 5: Secure document upload
 
-**Files:** Create `validation/document.ts`, `lib/documents.ts`, `lib/document-upload.ts`, `app/document/new.tsx`, `components/DocumentCard.tsx`; test `tests/document-upload.test.ts`.
+**Files:** Create `validation/document.ts`, `lib/documents.ts`, `lib/document-upload.ts`, `app/document/new.tsx`, `components/DocumentCard.tsx`; consume the Task 6 `lib/document-cache.ts` contract; test `tests/document-upload.test.ts`.
 
 **Interfaces:** `selectFile(): Promise<SelectedFile|null>`, `selectPhoto(): Promise<SelectedFile|null>`, `uploadDocument(input,selectedFile): Promise<CarDocument>`, `listDocuments(userId): Promise<CarDocument[]>`; `SelectedFile = {uri:string; mimeType:string; sizeBytes:number; name:string}`.
 
@@ -133,14 +133,14 @@ For each task, give one fresh worker only that task's files and interfaces; neve
 
 ### Task 6: Offline document cache
 
-**Files:** Create `lib/document-cache.ts`; test `tests/document-cache.test.ts`; modify `lib/document-upload.ts`, `lib/offline-index.ts` only as needed for integration.
+**Files:** Create `lib/document-cache.ts`; test `tests/document-cache.test.ts`. Task 5 consumes this service after it exists.
 
 **Interfaces:** `interface DocumentCache { save(documentId:string,sourceUri:string):Promise<string>; get(documentId:string):Promise<string|null>; remove(documentId:string):Promise<void>; exists(documentId:string):Promise<boolean> }`; `createDocumentCache(userId)` returns that interface.
 
 - [ ] Write tests first for save/get after a new cache instance (simulated process restart), missing/deleted files, remove, same document ID under different user IDs, and partial-copy failure. Run `npm test -- --runInBand tests/document-cache.test.ts`; expect failure before implementation.
 - [ ] Use current Expo `Directory`, `File`, and `Paths.document` APIs under an account-scoped `cardoc/<userId>/` directory. Copy to a temporary file, verify nonzero size, then move to the final name; `get` must check the physical file on every call. Do not store a source picker URI as the cache pointer. Keep the file extension from the validated MIME type so native PDF viewing works.
-- [ ] Update upload/download orchestration to mark `offlineAvailable` from `cache.exists`, then persist metadata after the file exists. Make `openDocument` return a local URI immediately when present; otherwise authenticated-download the private object, save it, then return the local URI. If offline and missing, show a clear unavailable state without indefinite loading.
-- [ ] Run focused and broader tests plus typecheck. On a physical build, upload an RC, force-close, enable airplane mode, restart, open Present → RC, and record rendered-file evidence; leave this gate open if no device is available. Commit `feat: add offline document storage`.
+- [ ] Export `createDocumentCache(userId)` for Task 5. Do not add upload code in this task. `get` returns a URI only after checking the physical file; missing content returns `null` even if an old metadata flag says offline.
+- [ ] Run focused and broader tests plus lint and typecheck. The full upload → force-close → airplane-mode → Present → RC device acceptance is run after Task 5 and Task 8 wire this cache into the app; leave that gate open if no device is available. Commit `feat: add offline document storage`.
 
 ### Task 7: Protected image/PDF viewer
 
