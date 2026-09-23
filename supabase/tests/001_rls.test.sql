@@ -34,6 +34,8 @@ values
    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'vehicle', 'registration', 'B RC',
    '22222222-2222-4222-8222-222222222222/bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb.pdf', 'application/pdf', 1024);
 
+-- These direct storage.objects writes test SQL policies only. They do not test
+-- Storage HTTP authorization or blob bytes; Task 5 live API tests must cover both.
 insert into storage.objects (bucket_id, name, owner_id)
 values
   ('cardoc-documents', '11111111-1111-4111-8111-111111111111/aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa.pdf', '11111111-1111-4111-8111-111111111111'),
@@ -42,36 +44,56 @@ values
 set local role authenticated;
 set local request.jwt.claim.sub = '11111111-1111-4111-8111-111111111111';
 
-select is((select count(*) from public.vehicles), 1::bigint, 'A sees only A vehicle');
-select is((select count(*) from public.documents), 1::bigint, 'A sees only A document');
-select is((select count(*) from storage.objects where bucket_id = 'cardoc-documents'), 1::bigint, 'A sees only A object');
+select is((select array_agg(id::text order by id) from public.vehicles),
+  array['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'], 'A sees exactly A vehicle');
+select is((select array_agg(id::text order by id) from public.documents),
+  array['aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa'], 'A sees exactly A document');
+select is((select array_agg(name order by name) from storage.objects where bucket_id = 'cardoc-documents'),
+  array['11111111-1111-4111-8111-111111111111/aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa.pdf'],
+  'A sees exactly A object');
 select lives_ok($$insert into public.vehicles (user_id, nickname, registration_number)
   values ('11111111-1111-4111-8111-111111111111', 'A second car', 'GJ05EF1234')$$,
   'A can insert A vehicle');
-select lives_ok($$update public.vehicles set nickname = 'A edited car'
-  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'$$, 'A can update A vehicle');
-select lives_ok($$delete from public.vehicles where nickname = 'A second car'$$, 'A can delete A vehicle');
+select is((with changed as (
+  update public.vehicles set nickname = 'A edited car'
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' returning nickname
+) select nickname from changed), 'A edited car', 'A updates A vehicle');
+select is((with removed as (
+  delete from public.vehicles where nickname = 'A second car' returning nickname
+) select nickname from removed), 'A second car', 'A deletes A second vehicle');
 select lives_ok($$insert into public.documents
   (id, user_id, scope, type, display_name, file_path, mime_type, size_bytes)
   values ('aaaaaaaa-0000-4000-8000-aaaaaaaaaaab',
   '11111111-1111-4111-8111-111111111111', 'driver', 'driving_license', 'A DL',
   '11111111-1111-4111-8111-111111111111/aaaaaaaa-0000-4000-8000-aaaaaaaaaaab.png', 'image/png', 1024)$$,
   'A can insert A driver document without vehicle');
-select lives_ok($$update public.documents set display_name = 'A updated RC'
-  where id = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa'$$, 'A can update A document');
-select lives_ok($$delete from public.documents where type = 'driving_license'$$, 'A can delete A document');
+select is((with changed as (
+  update public.documents set display_name = 'A updated RC'
+  where id = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa' returning display_name
+) select display_name from changed), 'A updated RC', 'A updates A document');
+select is((with removed as (
+  delete from public.documents where id = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaab' returning id::text
+) select id from removed), 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaab', 'A deletes A driver document');
 select lives_ok($$insert into storage.objects (bucket_id, name, owner_id)
   values ('cardoc-documents', '11111111-1111-4111-8111-111111111111/aaaaaaaa-0000-4000-8000-aaaaaaaaaaab.png',
   '11111111-1111-4111-8111-111111111111')$$, 'A can upload into A folder');
-select lives_ok($$delete from storage.objects where name =
-  '11111111-1111-4111-8111-111111111111/aaaaaaaa-0000-4000-8000-aaaaaaaaaaab.png'$$,
-  'A can delete A object');
+select is((with removed as (
+  delete from storage.objects where name =
+    '11111111-1111-4111-8111-111111111111/aaaaaaaa-0000-4000-8000-aaaaaaaaaaab.png'
+  returning name
+) select name from removed),
+  '11111111-1111-4111-8111-111111111111/aaaaaaaa-0000-4000-8000-aaaaaaaaaaab.png',
+  'A deletes A object');
 
 set local request.jwt.claim.sub = '22222222-2222-4222-8222-222222222222';
 
-select is((select count(*) from public.vehicles), 1::bigint, 'B cannot read A vehicle');
-select is((select count(*) from public.documents), 1::bigint, 'B cannot read A document');
-select is((select count(*) from storage.objects where bucket_id = 'cardoc-documents'), 1::bigint, 'B cannot read A object');
+select is((select array_agg(id::text order by id) from public.vehicles),
+  array['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'], 'B sees exactly B vehicle');
+select is((select array_agg(id::text order by id) from public.documents),
+  array['bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb'], 'B sees exactly B document');
+select is((select array_agg(name order by name) from storage.objects where bucket_id = 'cardoc-documents'),
+  array['22222222-2222-4222-8222-222222222222/bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb.pdf'],
+  'B sees exactly B object');
 select is((with changed as (
   update public.vehicles set nickname = 'B changed A car'
   where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' returning id
