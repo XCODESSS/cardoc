@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { VehicleForm } from '../../components/VehicleForm';
 import { DocumentCard } from '../../components/DocumentCard';
 import { useAuthState } from '../../lib/auth';
+import { deleteDocument } from '../../lib/document-delete';
 import { listDocuments } from '../../lib/documents';
 import { readOfflineIndex } from '../../lib/offline-index';
 import { deleteVehicle, getVehicle, updateVehicle } from '../../lib/vehicles';
@@ -20,6 +21,7 @@ export default function VehicleDetailScreen() {
   const [offline, setOffline] = useState(auth.status === 'offline');
   const [error, setError] = useState('');
   const [documents, setDocuments] = useState<CarDocument[]>([]);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => {
     if (!userId || !id) return;
@@ -66,6 +68,22 @@ export default function VehicleDetailScreen() {
     ]);
   }
 
+  function confirmDeleteDocument(document: CarDocument) {
+    if (offline || deletingDocumentId) return;
+    Alert.alert('Delete document?', `${document.displayName} will be removed from Cardoc and this device.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => {
+        setDeletingDocumentId(document.id);
+        setError('');
+        void deleteDocument(document.id).then(() => {
+          setDocuments((current) => current.filter((item) => item.id !== document.id));
+        }).catch((cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : 'Could not delete this document.');
+        }).finally(() => setDeletingDocumentId(null));
+      } },
+    ]);
+  }
+
   return (
     <View style={styles.page}>
       <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.back}><Text style={styles.backText}>‹ Vehicles</Text></Pressable>
@@ -81,7 +99,17 @@ export default function VehicleDetailScreen() {
           setVehicle(updated);
         }} footer={<>
           <Text style={styles.section}>Documents</Text>
-          {documents.map((document) => <DocumentCard key={document.id} document={document} />)}
+          {documents.map((document) => <View key={document.id} style={styles.documentItem}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`View ${document.displayName}`}
+              onPress={() => router.push(`/document/${document.id}` as Href)}>
+              <DocumentCard document={document} />
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Delete ${document.displayName}`}
+              disabled={offline || deletingDocumentId !== null} onPress={() => confirmDeleteDocument(document)}
+              style={styles.documentDelete}>
+              <Text style={styles.deleteText}>{deletingDocumentId === document.id ? 'Deleting...' : `Delete ${document.displayName}`}</Text>
+            </Pressable>
+          </View>)}
           {!documents.length ? <Text style={styles.missing}>No documents yet.</Text> : null}
           <Pressable accessibilityRole="button" accessibilityLabel="Add document" disabled={offline}
             onPress={() => router.push({ pathname: '/document/new', params: { vehicleId: vehicle.id } })} style={styles.add}>
@@ -107,6 +135,8 @@ const styles = StyleSheet.create({
   presentText: { color: '#fff', fontSize: 18, fontWeight: '700' },
   error: { color: '#ae2020' },
   section: { color: '#13283a', fontSize: 20, fontWeight: '700', marginTop: 20 },
+  documentItem: { marginTop: 10 },
+  documentDelete: { alignSelf: 'flex-end', paddingVertical: 10, paddingHorizontal: 6 },
   add: { backgroundColor: '#124a73', borderRadius: 10, minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   addText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   delete: { paddingVertical: 16, alignItems: 'center' },
