@@ -1,4 +1,4 @@
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 
 import { getAuthState } from './auth';
 import { createDocumentCache } from './document-cache';
@@ -58,7 +58,9 @@ export async function openPresentDocument(document: CarDocument): Promise<string
   const { data, error } = await client.storage.from('cardoc-documents').createSignedUrl(document.filePath, 60);
   if (error || !data?.signedUrl) throw new Error('Could not retrieve this document. Retry when connected.');
 
-  const staged = new File(Paths.cache, `cardoc-${document.id}-${Date.now()}.${extension}`);
+  const staging = new Directory(Paths.cache, 'cardoc-upload-staging', auth.userId);
+  staging.create({ idempotent: true, intermediates: true });
+  const staged = new File(staging, `cardoc-${document.id}-${Date.now()}.${extension}`);
   try {
     const downloaded = await File.downloadFileAsync(data.signedUrl, staged);
     if (!downloaded.exists || !downloaded.size || downloaded.size <= 0 || downloaded.size > MAX_DOCUMENT_BYTES

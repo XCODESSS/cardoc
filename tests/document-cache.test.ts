@@ -1,7 +1,8 @@
-import { createDocumentCache } from '../lib/document-cache';
+import { clearDocumentCache, createDocumentCache } from '../lib/document-cache';
 
 const mockFiles = new Map<string, number>();
 let mockCopyFailure = false;
+let mockDirectoryDeleteFailure: string | null = null;
 
 jest.mock('expo-file-system', () => {
   const join = (...parts: string[]) => parts.join('/').replace(/\/{2,}/g, '/');
@@ -14,6 +15,13 @@ jest.mock('expo-file-system', () => {
     }
 
     create() { /* Directories are implicit in this filesystem mock. */ }
+
+    get exists() { return [...mockFiles.keys()].some((uri) => uri.startsWith(`${this.uri}/`)); }
+
+    delete() {
+      if (this.uri === mockDirectoryDeleteFailure) throw new Error('Directory removal failed');
+      for (const uri of mockFiles.keys()) if (uri.startsWith(`${this.uri}/`)) mockFiles.delete(uri);
+    }
   }
 
   class File {
@@ -46,7 +54,7 @@ jest.mock('expo-file-system', () => {
     }
   }
 
-  return { Directory, File, Paths: { document: new Directory('file:/documents') } };
+  return { Directory, File, Paths: { document: new Directory('file:/documents'), cache: new Directory('file:/cache') } };
 });
 
 const userA = '11111111-1111-4111-8111-111111111111';
@@ -58,6 +66,7 @@ const stagedPng = 'file:/staging/replacement.png';
 beforeEach(() => {
   mockFiles.clear();
   mockCopyFailure = false;
+  mockDirectoryDeleteFailure = null;
   mockFiles.set(stagedPdf, 1024);
   mockFiles.set(stagedPng, 2048);
 });
@@ -143,4 +152,27 @@ test('exists remains usable when passed as a callback', async () => {
   await cache.save(documentId, stagedPdf);
   const { exists } = cache;
   expect(await exists(documentId)).toBe(true);
+});
+
+test('account cleanup removes all cached files for one owner, including orphaned files', async () => {
+  const own = await createDocumentCache(userA).save(documentId, stagedPdf);
+  const other = await createDocumentCache(userB).save(documentId, stagedPdf);
+  mockFiles.set(`file:/documents/cardoc/${userA}/orphan.pdf`, 512);
+  mockFiles.set(`file:/cache/cardoc-upload-staging/${userA}/orphan.pdf`, 512);
+  mockFiles.set(`file:/cache/cardoc-upload-staging/${userB}/other.pdf`, 512);
+  await clearDocumentCache(userA);
+  expect(mockFiles.has(own)).toBe(false);
+  expect(mockFiles.has(`file:/documents/cardoc/${userA}/orphan.pdf`)).toBe(false);
+  expect(mockFiles.has(`file:/cache/cardoc-upload-staging/${userA}/orphan.pdf`)).toBe(false);
+  expect(mockFiles.has(`file:/cache/cardoc-upload-staging/${userB}/other.pdf`)).toBe(true);
+  expect(mockFiles.has(other)).toBe(true);
+  await clearDocumentCache(userA);
+});
+
+test('account cleanup attempts staging removal even when document removal fails', async () => {
+  mockFiles.set(`file:/documents/cardoc/${userA}/orphan.pdf`, 512);
+  mockFiles.set(`file:/cache/cardoc-upload-staging/${userA}/orphan.pdf`, 512);
+  mockDirectoryDeleteFailure = `file:/documents/cardoc/${userA}`;
+  await expect(clearDocumentCache(userA)).rejects.toThrow('Directory removal failed');
+  expect(mockFiles.has(`file:/cache/cardoc-upload-staging/${userA}/orphan.pdf`)).toBe(false);
 });

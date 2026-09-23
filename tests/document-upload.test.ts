@@ -220,6 +220,7 @@ test.each([
   expect(upload).toHaveBeenCalledWith(`${USER_ID}/${DOCUMENT_ID}.${mimeType === 'application/pdf' ? 'pdf' : mimeType === 'image/png' ? 'png' : 'jpg'}`, expect.any(ArrayBuffer), { contentType: mimeType, upsert: false });
   expect(query.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: USER_ID, vehicle_id: VEHICLE_ID, mime_type: mimeType }));
   expect(mockCacheSave).toHaveBeenCalledWith(DOCUMENT_ID, expect.stringMatching(/\.(pdf|jpg|png)$/));
+  expect(mockCacheSave).toHaveBeenCalledWith(DOCUMENT_ID, expect.stringContaining(`/cardoc-upload-staging/${USER_ID}/`));
   expect(result.offlineAvailable).toBe(true);
 });
 

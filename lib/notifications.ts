@@ -44,6 +44,16 @@ export async function cancelReminders(userId: string, documentId: string): Promi
   await AsyncStorage.removeItem(key);
 }
 
+/** Cancel every notification owned by one account, including documents missing from the offline index. */
+export async function cancelAllRemindersForUser(userId: string): Promise<void> {
+  if (!userId) throw new Error('A user ID is required for reminder cleanup.');
+  const prefix = `cardoc.reminders.v${VERSION}.${userId}.`;
+  const keys = await AsyncStorage.getAllKeys();
+  for (const key of keys) {
+    if (key.startsWith(prefix)) await cancelReminders(userId, key.slice(prefix.length));
+  }
+}
+
 function isAllowed(settings: Notifications.NotificationPermissionsStatus): boolean {
   return settings.granted || settings.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
 }

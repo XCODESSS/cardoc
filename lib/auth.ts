@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from 'react';
 
-import { clearOfflineUserId, getOfflineUserId as readOfflineUserId, saveOfflineUserId, SecureStorageError } from './session-storage';
+import {
+  clearOfflineUserId, clearPendingLogoutUserId, getOfflineUserId as readOfflineUserId,
+  getPendingLogoutUserId, saveOfflineUserId, savePendingLogoutUserId, SecureStorageError,
+} from './session-storage';
+import { clearAccountLocalState } from './local-data';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 export type AuthState = {
@@ -11,6 +15,38 @@ export type AuthState = {
 const listeners = new Set<() => void>();
 let state: AuthState = { status: 'loading', userId: null };
 let authEventSubscription: { unsubscribe(): void } | null = null;
+let logoutInProgress = false;
+
+async function accountIdForCleanup(previousUserId: string | null): Promise<string | null> {
+  try {
+    const pendingUserId = await getPendingLogoutUserId();
+    if (pendingUserId) return pendingUserId;
+    return await readOfflineUserId() ?? previousUserId;
+  } catch (cause) {
+    if (previousUserId) return previousUserId;
+    throw cause;
+  }
+}
+
+async function handleExternalSignOut() {
+  logoutInProgress = true;
+  const previousUserId = state.userId;
+  publish({ status: 'loading', userId: null });
+  try {
+    const userId = await accountIdForCleanup(previousUserId);
+    if (userId) {
+      await savePendingLogoutUserId(userId);
+      await clearAccountLocalState(userId);
+    }
+    await clearOfflineUserId();
+    await clearPendingLogoutUserId();
+    publish({ status: 'signedOut', userId: null });
+  } catch {
+    publish({ status: 'storageError', userId: null });
+  } finally {
+    logoutInProgress = false;
+  }
+}
 
 function publish(next: AuthState) {
   state = next;
@@ -24,10 +60,8 @@ export function subscribeAuth(listener: () => void) {
   if (!authEventSubscription) {
     const client = getSupabaseClient();
     authEventSubscription = client?.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        void clearOfflineUserId()
-          .then(() => publish({ status: 'signedOut', userId: null }))
-          .catch(() => publish({ status: 'storageError', userId: null }));
+      if (event === 'SIGNED_OUT' && !logoutInProgress) {
+        void handleExternalSignOut();
       }
     }).data.subscription ?? null;
   }
@@ -106,9 +140,17 @@ export async function register(email: string, password: string): Promise<'signed
 }
 
 export async function logout() {
-  const client = getSupabaseClient();
-  let localSignOutFailed = false;
+  if (logoutInProgress) return;
+  logoutInProgress = true;
+  const previousUserId = state.userId;
+  publish({ status: 'loading', userId: null });
   try {
+    const userId = await accountIdForCleanup(previousUserId);
+    if (userId) {
+      await savePendingLogoutUserId(userId);
+      await clearAccountLocalState(userId);
+    }
+    const client = getSupabaseClient();
     try {
       const result = await client?.auth.signOut();
       if (result?.error) throw result.error;
@@ -117,17 +159,15 @@ export async function logout() {
       const result = await client?.auth.signOut({ scope: 'local' });
       if (result?.error) throw result.error;
     }
-  } catch (error) {
-    localSignOutFailed = true;
-    throw error;
+    await clearOfflineUserId();
+    await clearPendingLogoutUserId();
+    publish({ status: 'signedOut', userId: null });
+  } catch (cause) {
+    // Preserve the offline identity for a retry if device cleanup failed.
+    publish({ status: 'storageError', userId: null });
+    throw cause;
   } finally {
-    try {
-      await clearOfflineUserId();
-    } catch (cause) {
-      publish({ status: 'storageError', userId: null });
-      throw cause;
-    }
-    publish({ status: localSignOutFailed ? 'storageError' : 'signedOut', userId: null });
+    logoutInProgress = false;
   }
 }
 
@@ -141,6 +181,10 @@ export async function restoreAuth(): Promise<AuthState> {
     return state;
   }
   try {
+    if (await getPendingLogoutUserId()) {
+      publish({ status: 'storageError', userId: null });
+      return state;
+    }
     const { data, error } = await requireClient().auth.getSession();
     if (data.session?.user.id) {
       await saveOfflineUserId(data.session.user.id);
@@ -149,8 +193,7 @@ export async function restoreAuth(): Promise<AuthState> {
       const userId = await readOfflineUserId();
       publish(userId ? { status: 'offline', userId } : { status: 'signedOut', userId: null });
     } else {
-      await clearOfflineUserId();
-      publish({ status: 'signedOut', userId: null });
+      await logout();
     }
   } catch (error) {
     if (error instanceof Error && isNetworkFailure(error)) {

@@ -34,6 +34,7 @@ jest.mock('expo-router', () => {
 });
 jest.mock('../lib/vehicles', () => ({ getVehicle: (...args: unknown[]) => mockGetVehicle(...args), updateVehicle: jest.fn(), deleteVehicle: jest.fn() }));
 jest.mock('../lib/documents', () => ({ listDocuments: (...args: unknown[]) => mockListDocuments(...args) }));
+jest.mock('../lib/document-delete', () => ({ deleteDocument: jest.fn() }));
 jest.mock('../lib/auth', () => ({
   getAuthState: () => ({ status: mockAuthStatus, userId: '11111111-1111-4111-8111-111111111111' }),
   useAuthState: () => ({ status: mockAuthStatus, userId: '11111111-1111-4111-8111-111111111111' }),
@@ -46,15 +47,20 @@ jest.mock('../lib/supabase', () => ({
   getSupabaseClient: () => ({ storage: { from: () => ({ createSignedUrl: (...args: unknown[]) => mockSignedUrl(...args) }) } }),
 }));
 jest.mock('expo-file-system', () => {
+  class Directory {
+    uri: string;
+    constructor(...parts: unknown[]) { this.uri = parts.map((part) => typeof part === 'string' ? part : (part as Directory).uri).join('/'); }
+    create() { /* in-memory directory */ }
+  }
   class File {
     static downloadFileAsync = (...args: unknown[]) => mockDownloadFile(...args);
     uri: string;
     size = 100;
     exists = true;
     delete = jest.fn();
-    constructor(...parts: unknown[]) { this.uri = parts.join('/'); }
+    constructor(...parts: unknown[]) { this.uri = parts.map((part) => typeof part === 'string' ? part : (part as Directory).uri).join('/'); }
   }
-  return { File, Paths: { cache: 'file:///cache' } };
+  return { Directory, File, Paths: { cache: 'file:///cache' } };
 });
 
 function document(partial: Partial<CarDocument> = {}): CarDocument {
@@ -134,10 +140,10 @@ test('uncached document downloads from private Storage and saves locally when on
   mockAuthStatus = 'signedIn';
   mockGet.mockResolvedValue(null);
   mockSignedUrl.mockResolvedValue({ data: { signedUrl: 'https://signed.example/object' }, error: null });
-  mockDownloadFile.mockResolvedValue({ uri: 'file:///cache/staged.pdf', size: 100, exists: true, delete: jest.fn() });
+  mockDownloadFile.mockImplementation(async (_url: string, destination: { uri: string }) => ({ uri: destination.uri, size: 100, exists: true, delete: jest.fn() }));
   await expect(openPresentDocument(document())).resolves.toBe('file:///documents/rc.pdf');
   expect(mockSignedUrl).toHaveBeenCalledWith(`${USER_ID}/${RC_ID}.pdf`, 60);
-  expect(mockSave).toHaveBeenCalledWith(RC_ID, 'file:///cache/staged.pdf');
+  expect(mockSave).toHaveBeenCalledWith(RC_ID, expect.stringContaining(`/cardoc-upload-staging/${USER_ID}/`));
 });
 
 test('Present screen renders offline slots and one tap opens the viewer', async () => {

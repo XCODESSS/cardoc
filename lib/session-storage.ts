@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
 const OFFLINE_USER_ID_KEY = 'cardoc.offlineUserId';
+const PENDING_LOGOUT_USER_ID_KEY = 'cardoc.pendingLogoutUserId';
 
 export class SecureStorageError extends Error {
   constructor() {
@@ -30,3 +31,8 @@ export const saveOfflineUserId = (userId: string) =>
   secure(SecureStore.setItemAsync(OFFLINE_USER_ID_KEY, userId));
 
 export const clearOfflineUserId = () => secure(SecureStore.deleteItemAsync(OFFLINE_USER_ID_KEY));
+
+export const getPendingLogoutUserId = () => secure(SecureStore.getItemAsync(PENDING_LOGOUT_USER_ID_KEY));
+export const savePendingLogoutUserId = (userId: string) =>
+  secure(SecureStore.setItemAsync(PENDING_LOGOUT_USER_ID_KEY, userId));
+export const clearPendingLogoutUserId = () => secure(SecureStore.deleteItemAsync(PENDING_LOGOUT_USER_ID_KEY));

@@ -131,7 +131,7 @@ export async function retryOfflineCopy(document: CarDocument, file: SelectedFile
   const source = new File(selected.uri);
   if (!source.exists || source.size !== selected.sizeBytes) throw new Error('Selected file is no longer available.');
   const cache = createDocumentCache(userId);
-  const staging = new Directory(Paths.cache, 'cardoc-upload-staging');
+  const staging = new Directory(Paths.cache, 'cardoc-upload-staging', userId);
   const staged = new File(staging, `${document.id}.${selected.extension}`);
   let cached: CarDocument;
   try {

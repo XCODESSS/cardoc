@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 
-import { cancelReminders, rescheduleReminders } from '../lib/notifications';
+import { cancelAllRemindersForUser, cancelReminders, rescheduleReminders } from '../lib/notifications';
 
 const mockValues = new Map<string, string>();
 const mockScheduled: string[] = [];
@@ -13,6 +13,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
     getItem: jest.fn(async (key: string) => mockValues.get(key) ?? null),
     setItem: jest.fn(async (key: string, value: string) => { mockValues.set(key, value); }),
     removeItem: jest.fn(async (key: string) => { mockValues.delete(key); }),
+    getAllKeys: jest.fn(async () => [...mockValues.keys()]),
   },
 }));
 
@@ -88,6 +89,17 @@ test('deleting a document cancels only its own reminders', async () => {
   expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('notification-1');
   expect(mockValues.has('cardoc.reminders.v1.user-a.document-a')).toBe(false);
   expect(mockValues.has('cardoc.reminders.v1.user-b.document-a')).toBe(true);
+});
+
+test('sign-out cancels all account reminders and preserves another account', async () => {
+  await rescheduleReminders('user-a', document, { now });
+  await rescheduleReminders('user-a', { ...document, id: 'document-b' }, { now });
+  await rescheduleReminders('user-b', { ...document, userId: 'user-b' }, { now });
+  await cancelAllRemindersForUser('user-a');
+  expect(mockValues.has('cardoc.reminders.v1.user-a.document-a')).toBe(false);
+  expect(mockValues.has('cardoc.reminders.v1.user-a.document-b')).toBe(false);
+  expect(mockValues.has('cardoc.reminders.v1.user-b.document-a')).toBe(true);
+  expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledTimes(6);
 });
 
 test('denied permission does not schedule and reports disabled', async () => {

@@ -111,3 +111,19 @@ export function createDocumentCache(userId: string): DocumentCache {
     },
   };
 }
+
+/** Remove every cached file for one account, including interrupted upload copies. */
+export async function clearDocumentCache(userId: string): Promise<void> {
+  const ownerId = requireId(userId, 'user');
+  const directory = new Directory(Paths.document, 'cardoc', ownerId);
+  const staging = new Directory(Paths.cache, 'cardoc-upload-staging', ownerId);
+  const failures: unknown[] = [];
+  for (const target of [directory, staging]) {
+    try {
+      if (target.exists) target.delete();
+    } catch (cause) {
+      failures.push(cause);
+    }
+  }
+  if (failures.length) throw failures[0];
+}

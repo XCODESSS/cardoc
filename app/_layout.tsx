@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Stack } from 'expo-router';
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { getAuthState, restoreAuth, useAuthState } from '../lib/auth';
+import { getAuthState, logout, restoreAuth, useAuthState } from '../lib/auth';
 import { authenticateDevice, canOpenProtectedRoutes } from '../lib/app-lock';
 
 export default function RootLayout() {
@@ -12,6 +12,8 @@ export default function RootLayout() {
   const [unlockedFor, setUnlockedFor] = useState<string | null>(null);
   const [unlockBusy, setUnlockBusy] = useState(false);
   const [unlockMessage, setUnlockMessage] = useState('');
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryError, setRetryError] = useState('');
 
   useEffect(() => {
     void restoreAuth();
@@ -21,7 +23,7 @@ export default function RootLayout() {
     let active = true;
     if (previousStatus.current === 'signedOut' && auth.status === 'signedIn' && auth.userId) {
       const userId = auth.userId;
-      queueMicrotask(() => { if (active) setUnlockedFor(userId); });
+      queueMicrotask(() => { if (active && foreground.current) setUnlockedFor(userId); });
     } else if (auth.status === 'signedOut' || auth.status === 'configurationUnavailable' || auth.status === 'storageError') {
       queueMicrotask(() => { if (active) setUnlockedFor(null); });
     }
@@ -59,6 +61,19 @@ export default function RootLayout() {
     setUnlockBusy(false);
   }
 
+  async function retrySignOut() {
+    if (retryBusy) return;
+    setRetryBusy(true);
+    setRetryError('');
+    try {
+      await logout();
+    } catch {
+      setRetryError('Local data could not be cleared. Try again when device storage is available.');
+    } finally {
+      setRetryBusy(false);
+    }
+  }
+
   if (auth.status === 'loading') {
     return <View style={styles.center}><Text>Opening Cardoc…</Text></View>;
   }
@@ -66,7 +81,15 @@ export default function RootLayout() {
     return <View style={styles.center}><Text>Cardoc setup is unavailable on this build.</Text></View>;
   }
   if (auth.status === 'storageError') {
-    return <View style={styles.center}><Text>Secure storage is unavailable. Cardoc cannot safely keep a session on this device.</Text></View>;
+    return <View style={styles.locked}>
+      <Text style={styles.lockTitle}>Cardoc is locked</Text>
+      <Text style={styles.lockDescription}>Cardoc cannot safely use the saved session. Retry sign out to clear local account data.</Text>
+      {retryError ? <Text accessibilityRole="alert" style={styles.lockDescription}>{retryError}</Text> : null}
+      <Pressable accessibilityRole="button" accessibilityLabel="Retry sign out" disabled={retryBusy}
+        style={styles.unlockButton} onPress={() => void retrySignOut()}>
+        <Text style={styles.unlockText}>{retryBusy ? 'Clearing local data...' : 'Retry sign out'}</Text>
+      </Pressable>
+    </View>;
   }
   if ((auth.status === 'signedIn' || auth.status === 'offline')
     && !canOpenProtectedRoutes(auth.status, auth.userId, unlockedFor)) {
