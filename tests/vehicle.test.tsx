@@ -7,6 +7,7 @@ const mockCreateVehicle = jest.fn();
 const mockListVehicles = jest.fn();
 const mockReadOfflineIndex = jest.fn();
 const mockAuthStatus = jest.fn();
+const mockAuthUserId = jest.fn();
 const mockClient = {
   from: jest.fn(),
 };
@@ -33,8 +34,8 @@ jest.mock('../lib/offline-index', () => ({
   readOfflineIndex: (...args: unknown[]) => mockReadOfflineIndex(...args),
 }));
 jest.mock('../lib/auth', () => ({
-  getAuthState: () => ({ status: mockAuthStatus(), userId: mockAuthStatus() === 'signedIn' ? 'user-a' : null }),
-  useAuthState: () => ({ status: mockAuthStatus(), userId: mockAuthStatus() === 'signedIn' ? 'user-a' : null }),
+  getAuthState: () => ({ status: mockAuthStatus(), userId: ['signedIn', 'offline'].includes(mockAuthStatus()) ? mockAuthUserId() : null }),
+  useAuthState: () => ({ status: mockAuthStatus(), userId: ['signedIn', 'offline'].includes(mockAuthStatus()) ? mockAuthUserId() : null }),
   restoreAuth: jest.fn(),
 }));
 jest.mock('../lib/supabase', () => ({ getSupabaseClient: () => mockClient }));
@@ -52,6 +53,7 @@ import { vehicleInputSchema } from '../validation/vehicle';
 beforeEach(() => {
   jest.clearAllMocks();
   mockAuthStatus.mockReturnValue('signedIn');
+  mockAuthUserId.mockReturnValue('user-a');
   mockReadOfflineIndex.mockResolvedValue({ vehicles: [], documents: [] });
   mockListVehicles.mockResolvedValue([]);
 });
@@ -86,6 +88,47 @@ test('offline fallback is visibly read-only for a signed-in account', async () =
   const list = await render(<VehiclesScreen />);
   await waitFor(() => expect(list.getByText('Cached car')).toBeTruthy());
   expect(list.getByText('Offline · read only')).toBeTruthy();
+});
+
+test('restored offline account sees its cached vehicles without a cloud request', async () => {
+  mockAuthStatus.mockReturnValue('offline');
+  mockReadOfflineIndex.mockResolvedValue({ vehicles: [{ id: 'cached', userId: 'user-a', nickname: 'My BMW', registrationNumber: 'GJ05AB1234', manufacturer: null, model: null, year: null, createdAt: '', updatedAt: '' }], documents: [] });
+
+  const list = await render(<VehiclesScreen />);
+  await waitFor(() => expect(list.getByText('My BMW')).toBeTruthy());
+  expect(mockReadOfflineIndex).toHaveBeenCalledWith('user-a');
+  expect(mockListVehicles).not.toHaveBeenCalled();
+  expect(list.getByRole('button', { name: 'Add vehicle' }).props.accessibilityState?.disabled).toBe(true);
+  fireEvent.press(list.getByRole('button', { name: 'Open My BMW' }));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/vehicle/[id]', params: { id: 'cached' } });
+});
+
+test('signed-in account shows cache while cloud refresh is pending', async () => {
+  mockReadOfflineIndex.mockResolvedValue({ vehicles: [{ id: 'cached', userId: 'user-a', nickname: 'Cached car', registrationNumber: 'ABCD1234', manufacturer: null, model: null, year: null, createdAt: '', updatedAt: '' }], documents: [] });
+  let releaseRefresh: ((vehicles: unknown[]) => void) | undefined;
+  mockListVehicles.mockReturnValue(new Promise((resolve) => { releaseRefresh = resolve; }));
+
+  const list = await render(<VehiclesScreen />);
+  await waitFor(() => expect(list.getByText('Cached car')).toBeTruthy());
+  expect(mockListVehicles).toHaveBeenCalledWith('user-a');
+  releaseRefresh?.([]);
+  await waitFor(() => expect(list.queryByText('Cached car')).toBeNull());
+});
+
+test('switching accounts never shows the previous account vehicle', async () => {
+  mockAuthStatus.mockReturnValue('offline');
+  mockReadOfflineIndex.mockResolvedValueOnce({ vehicles: [{ id: 'a-car', userId: 'user-a', nickname: 'A car', registrationNumber: 'ABCD1234', manufacturer: null, model: null, year: null, createdAt: '', updatedAt: '' }], documents: [] });
+  let releaseNewCache: ((value: unknown) => void) | undefined;
+  mockReadOfflineIndex.mockReturnValueOnce(new Promise((resolve) => { releaseNewCache = resolve; }));
+
+  const list = await render(<VehiclesScreen />);
+  await waitFor(() => expect(list.getByText('A car')).toBeTruthy());
+  mockAuthUserId.mockReturnValue('user-b');
+  await list.rerender(<VehiclesScreen />);
+  expect(list.queryByText('A car')).toBeNull();
+  expect(mockReadOfflineIndex).toHaveBeenLastCalledWith('user-b');
+  releaseNewCache?.({ vehicles: [{ id: 'b-car', userId: 'user-b', nickname: 'B car', registrationNumber: 'WXYZ1234', manufacturer: null, model: null, year: null, createdAt: '', updatedAt: '' }], documents: [] });
+  await waitFor(() => expect(list.getByText('B car')).toBeTruthy());
 });
 
 test('vehicle routes are inaccessible from the signed-out root', async () => {
