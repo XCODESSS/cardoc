@@ -5,11 +5,18 @@ import * as ImagePicker from 'expo-image-picker';
 
 import { createDocumentCache } from './document-cache';
 import { mapDocument, requireDocumentIdentity, type DocumentRow } from './documents';
+import { rescheduleReminders, type ReminderResult } from './notifications';
 import { readOfflineIndex, writeOfflineIndex } from './offline-index';
 import type { CarDocument } from '../types/document';
 import { documentInputSchema, matchesDocumentSignature, validateSelectedFile, type DocumentInput, type SelectedFile } from '../validation/document';
 
 const BUCKET = 'cardoc-documents';
+
+export interface UploadReminderOptions {
+  /** Set true only after the upload screen has explained reminder notifications. */
+  requestReminderPermission?: boolean;
+  onReminderResult?: (result: ReminderResult | 'error') => void;
+}
 
 function mimeTypeFromName(name: string): string {
   const extension = name.split('.').pop()?.toLowerCase();
@@ -49,7 +56,7 @@ export async function selectPhoto(): Promise<SelectedFile | null> {
   return validateSelectedFile(selected);
 }
 
-export async function uploadDocument(input: DocumentInput, file: SelectedFile): Promise<CarDocument> {
+export async function uploadDocument(input: DocumentInput, file: SelectedFile, options: UploadReminderOptions = {}): Promise<CarDocument> {
   const metadata = documentInputSchema.parse(input);
   const selected = validateSelectedFile(file);
   const { userId, client } = requireDocumentIdentity();
@@ -88,6 +95,18 @@ export async function uploadDocument(input: DocumentInput, file: SelectedFile): 
   }
 
   const document = mapDocument(row, false);
+  let reminderResult: ReminderResult | 'error' = 'none';
+  if (document.expiryDate !== null) {
+    try {
+      reminderResult = await rescheduleReminders(userId, document, {
+        requestPermission: options.requestReminderPermission ?? false,
+      });
+    } catch {
+      // Notification errors must not make a committed cloud document look unsaved.
+      reminderResult = 'error';
+    }
+  }
+  try { options.onReminderResult?.(reminderResult); } catch { /* Observer errors are nonfatal. */ }
   try {
     return await retryOfflineCopy(document, selected);
   } catch {

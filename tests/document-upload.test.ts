@@ -1,8 +1,13 @@
+import React from 'react';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
+
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const VEHICLE_ID = '22222222-2222-4222-8222-222222222222';
 const DOCUMENT_ID = '33333333-3333-4333-8333-333333333333';
 
 const mockAuthState = jest.fn();
+const mockListVehicles = jest.fn();
+const mockRouterBack = jest.fn();
 const mockFrom = jest.fn();
 const mockStorageFrom = jest.fn();
 const mockReadOfflineIndex = jest.fn();
@@ -10,11 +15,17 @@ const mockWriteOfflineIndex = jest.fn();
 const mockCacheSave = jest.fn();
 const mockCacheGet = jest.fn();
 const mockCacheExists = jest.fn();
+const mockRescheduleReminders = jest.fn();
 const mockDocumentPicker = jest.fn();
 const mockImagePicker = jest.fn();
 const mockFiles = new Map<string, Uint8Array>();
 
-jest.mock('../lib/auth', () => ({ getAuthState: () => mockAuthState() }));
+jest.mock('../lib/auth', () => ({ getAuthState: () => mockAuthState(), useAuthState: () => mockAuthState() }));
+jest.mock('../lib/vehicles', () => ({ listVehicles: () => mockListVehicles() }));
+jest.mock('expo-router', () => ({
+  router: { back: () => mockRouterBack() },
+  useLocalSearchParams: () => ({ vehicleId: VEHICLE_ID }),
+}));
 jest.mock('../lib/supabase', () => ({
   getSupabaseClient: () => ({ from: (...args: unknown[]) => mockFrom(...args), storage: { from: (...args: unknown[]) => mockStorageFrom(...args) } }),
 }));
@@ -27,6 +38,9 @@ jest.mock('../lib/document-cache', () => ({
     save: (...args: unknown[]) => mockCacheSave(...args), get: (...args: unknown[]) => mockCacheGet(...args),
     exists: (...args: unknown[]) => mockCacheExists(...args),
   }),
+}));
+jest.mock('../lib/notifications', () => ({
+  rescheduleReminders: (...args: unknown[]) => mockRescheduleReminders(...args),
 }));
 jest.mock('expo-crypto', () => ({ randomUUID: () => DOCUMENT_ID }));
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: (...args: unknown[]) => mockDocumentPicker(...args) }));
@@ -61,7 +75,8 @@ jest.mock('expo-file-system', () => {
   return { File: MockFile, Directory: MockDirectory, Paths: { cache: { uri: 'file://cache' } } };
 });
 
-import { selectFile, selectPhoto, uploadDocument } from '../lib/document-upload';
+import { retryOfflineCopy, selectFile, selectPhoto, uploadDocument } from '../lib/document-upload';
+import NewDocumentScreen from '../app/document/new';
 import { getLocalDocumentUri, listDocuments } from '../lib/documents';
 import type { CarDocument } from '../types/document';
 import { documentInputSchema, validateSelectedFile } from '../validation/document';
@@ -79,11 +94,11 @@ function selected(mimeType: string, name: string) {
   return { uri, mimeType, name, sizeBytes: bytes.byteLength };
 }
 
-function insertQuery(mimeType: string) {
+function insertQuery(mimeType: string, expiryDate: string | null = null) {
   const row = {
     id: DOCUMENT_ID, user_id: USER_ID, vehicle_id: VEHICLE_ID, scope: 'vehicle', type: 'insurance',
     display_name: 'Insurance', file_path: `${USER_ID}/${DOCUMENT_ID}.${mimeType === 'application/pdf' ? 'pdf' : mimeType === 'image/png' ? 'png' : 'jpg'}`,
-    mime_type: mimeType, size_bytes: signature[mimeType].length + 3, expiry_date: null,
+    mime_type: mimeType, size_bytes: signature[mimeType].length + 3, expiry_date: expiryDate,
     created_at: '2026-09-23T00:00:00Z', updated_at: '2026-09-23T00:00:00Z',
   };
   return { insert: jest.fn().mockReturnThis(), select: jest.fn().mockReturnThis(), single: jest.fn().mockResolvedValue({ data: row, error: null }) };
@@ -98,6 +113,92 @@ beforeEach(() => {
   mockCacheSave.mockResolvedValue('file://cached/document');
   mockCacheGet.mockResolvedValue('file://cached/document');
   mockCacheExists.mockResolvedValue(true);
+  mockRescheduleReminders.mockResolvedValue('scheduled');
+  mockListVehicles.mockResolvedValue([{
+    id: VEHICLE_ID, userId: USER_ID, nickname: 'My BMW', registrationNumber: 'GJ05AB1234',
+  }]);
+});
+
+test('schedules reminders after a saved document without prompting by default', async () => {
+  const expiryDate = '2027-03-16';
+  const onReminderResult = jest.fn();
+  mockStorageFrom.mockReturnValue({ upload: jest.fn().mockResolvedValue({ error: null }) });
+  mockFrom.mockReturnValue(insertQuery('application/pdf', expiryDate));
+  const result = await uploadDocument(
+    { scope: 'vehicle', type: 'insurance', displayName: 'Insurance', vehicleId: VEHICLE_ID, expiryDate },
+    selected('application/pdf', 'insurance.pdf'),
+    { onReminderResult },
+  );
+  expect(result.offlineAvailable).toBe(true);
+  expect(mockRescheduleReminders).toHaveBeenCalledWith(USER_ID, expect.objectContaining({ id: DOCUMENT_ID, expiryDate }), { requestPermission: false });
+  expect(onReminderResult).toHaveBeenCalledWith('scheduled');
+});
+
+test('permission denial is reported while the uploaded document remains saved', async () => {
+  const expiryDate = '2027-03-16';
+  const onReminderResult = jest.fn();
+  mockStorageFrom.mockReturnValue({ upload: jest.fn().mockResolvedValue({ error: null }) });
+  mockFrom.mockReturnValue(insertQuery('application/pdf', expiryDate));
+  mockRescheduleReminders.mockResolvedValue('disabled');
+  const result = await uploadDocument(
+    { scope: 'vehicle', type: 'insurance', displayName: 'Insurance', vehicleId: VEHICLE_ID, expiryDate },
+    selected('application/pdf', 'insurance.pdf'),
+    { requestReminderPermission: true, onReminderResult },
+  );
+  expect(result.id).toBe(DOCUMENT_ID);
+  expect(mockRescheduleReminders).toHaveBeenCalledWith(USER_ID, expect.anything(), { requestPermission: true });
+  expect(onReminderResult).toHaveBeenCalledWith('disabled');
+});
+
+test('online-only saves still schedule and offline retries do not duplicate reminders', async () => {
+  const expiryDate = '2027-03-16';
+  mockStorageFrom.mockReturnValue({ upload: jest.fn().mockResolvedValue({ error: null }) });
+  mockFrom.mockReturnValue(insertQuery('application/pdf', expiryDate));
+  mockCacheSave.mockRejectedValueOnce(new Error('Disk full'));
+  const file = selected('application/pdf', 'insurance.pdf');
+  const result = await uploadDocument(
+    { scope: 'vehicle', type: 'insurance', displayName: 'Insurance', vehicleId: VEHICLE_ID, expiryDate }, file,
+  );
+  expect(result.offlineAvailable).toBe(false);
+  expect(mockRescheduleReminders).toHaveBeenCalledTimes(1);
+  expect((await retryOfflineCopy(result, file)).offlineAvailable).toBe(true);
+  expect(mockRescheduleReminders).toHaveBeenCalledTimes(1);
+});
+
+test('notification failure does not turn a saved document into an upload failure', async () => {
+  const expiryDate = '2027-03-16';
+  const onReminderResult = jest.fn();
+  mockStorageFrom.mockReturnValue({ upload: jest.fn().mockResolvedValue({ error: null }) });
+  mockFrom.mockReturnValue(insertQuery('application/pdf', expiryDate));
+  mockRescheduleReminders.mockRejectedValue(new Error('Notifications unavailable'));
+  const result = await uploadDocument(
+    { scope: 'vehicle', type: 'insurance', displayName: 'Insurance', vehicleId: VEHICLE_ID, expiryDate },
+    selected('application/pdf', 'insurance.pdf'), { onReminderResult },
+  );
+  expect(result.id).toBe(DOCUMENT_ID);
+  expect(onReminderResult).toHaveBeenCalledWith('error');
+});
+
+test('upload screen explains reminders before opting in and shows denied permission after save', async () => {
+  const expiryDate = '2027-03-16';
+  const file = selected('application/pdf', 'insurance.pdf');
+  mockDocumentPicker.mockResolvedValue({
+    canceled: false, assets: [{ uri: file.uri, name: file.name, mimeType: file.mimeType, size: file.sizeBytes }],
+  });
+  mockStorageFrom.mockReturnValue({ upload: jest.fn().mockResolvedValue({ error: null }) });
+  mockFrom.mockReturnValue(insertQuery('application/pdf', expiryDate));
+  mockRescheduleReminders.mockResolvedValue('disabled');
+  const screen = await render(React.createElement(NewDocumentScreen));
+  await waitFor(() => expect(screen.getByText('My BMW')).toBeTruthy());
+  await fireEvent.press(screen.getByRole('button', { name: 'Insurance' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Choose from Files' }));
+  await fireEvent.changeText(screen.getByPlaceholderText('YYYY-MM-DD'), expiryDate);
+  expect(screen.getByText(/Cardoc can remind you 30, 7, and 1 days/)).toBeTruthy();
+  await fireEvent.press(screen.getByRole('switch', { name: 'Ask to enable expiry reminders' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Save document' }));
+  await waitFor(() => expect(screen.getByText(/Saved\. Expiry reminders are off/)).toBeTruthy());
+  expect(mockRescheduleReminders).toHaveBeenCalledWith(USER_ID, expect.anything(), { requestPermission: true });
+  expect(mockRouterBack).not.toHaveBeenCalled();
 });
 
 test.each([

@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 
 import { useAuthState } from '../../lib/auth';
 import { retryOfflineCopy, selectFile, selectPhoto, uploadDocument } from '../../lib/document-upload';
+import type { ReminderResult } from '../../lib/notifications';
 import { listVehicles } from '../../lib/vehicles';
 import type { CarDocument, DocumentType } from '../../types/document';
 import { DOCUMENT_TYPES } from '../../types/document';
@@ -26,6 +27,8 @@ export default function NewDocumentScreen() {
   const [expiryDate, setExpiryDate] = useState('');
   const [file, setFile] = useState<SelectedFile | null>(null);
   const [saved, setSaved] = useState<CarDocument | null>(null);
+  const [askReminderPermission, setAskReminderPermission] = useState(false);
+  const [reminderStatus, setReminderStatus] = useState<ReminderResult | 'error'>('none');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -67,9 +70,17 @@ export default function NewDocumentScreen() {
     setBusy(true);
     setError('');
     try {
-      const document = await uploadDocument(parsed.data, file);
-      if (document.offlineAvailable) router.back();
-      else setSaved(document);
+      const reminderOutcome: { current: ReminderResult | 'error' } = { current: 'none' };
+      const document = await uploadDocument(parsed.data, file, {
+        requestReminderPermission: askReminderPermission,
+        onReminderResult: (result) => { reminderOutcome.current = result; },
+      });
+      if (document.offlineAvailable && reminderOutcome.current !== 'disabled' && reminderOutcome.current !== 'error') {
+        router.back();
+      } else {
+        setReminderStatus(reminderOutcome.current);
+        setSaved(document);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save this document.');
     } finally {
@@ -97,11 +108,13 @@ export default function NewDocumentScreen() {
       <Pressable accessibilityRole="button" onPress={() => router.back()}><Text style={styles.back}>‹ Back</Text></Pressable>
       <Text style={styles.title}>Add document</Text>
       {saved ? <>
-        <Text accessibilityRole="alert" style={styles.warning}>Saved online. This document is not available offline yet.</Text>
+        {!saved.offlineAvailable ? <Text accessibilityRole="alert" style={styles.warning}>Saved online. This document is not available offline yet.</Text> : null}
+        {reminderStatus === 'disabled' ? <Text accessibilityRole="alert" style={styles.warning}>Saved. Expiry reminders are off. Enable notifications in phone settings to receive them.</Text> : null}
+        {reminderStatus === 'error' ? <Text accessibilityRole="alert" style={styles.warning}>Saved. Expiry reminders could not be scheduled on this device.</Text> : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        <Pressable accessibilityRole="button" accessibilityLabel="Retry offline copy" onPress={() => void retryOffline()} disabled={busy} style={styles.button}>
+        {!saved.offlineAvailable ? <Pressable accessibilityRole="button" accessibilityLabel="Retry offline copy" onPress={() => void retryOffline()} disabled={busy} style={styles.button}>
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Retry offline copy</Text>}
-        </Pressable>
+        </Pressable> : null}
         <Pressable accessibilityRole="button" onPress={() => router.back()}><Text style={styles.back}>Done</Text></Pressable>
       </> : <>
         <Text style={styles.label}>Type</Text>
@@ -131,6 +144,13 @@ export default function NewDocumentScreen() {
         <TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} placeholder="Insurance" editable={!busy} />
         <Text style={styles.label}>Expiry date (optional)</Text>
         <TextInput style={styles.input} value={expiryDate} onChangeText={setExpiryDate} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" editable={!busy} />
+        {expiryDate.trim() ? <>
+          <Text style={styles.hint}>Cardoc can remind you 30, 7, and 1 days before expiry at 9 AM. Notifications do not include document details.</Text>
+          <Pressable accessibilityRole="switch" accessibilityState={{ checked: askReminderPermission }} accessibilityLabel="Ask to enable expiry reminders"
+            onPress={() => setAskReminderPermission((current) => !current)} disabled={busy} style={[styles.choice, askReminderPermission && styles.selected]}>
+            <Text style={askReminderPermission ? styles.selectedText : styles.choiceText}>{askReminderPermission ? 'Ask to enable reminders: On' : 'Ask to enable reminders: Off'}</Text>
+          </Pressable>
+        </> : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         <Pressable accessibilityRole="button" accessibilityLabel="Save document" onPress={() => void save()} disabled={busy} style={styles.button}>
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save document</Text>}
