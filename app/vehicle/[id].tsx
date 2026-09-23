@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { VehicleForm } from '../../components/VehicleForm';
+import { DocumentCard } from '../../components/DocumentCard';
 import { useAuthState } from '../../lib/auth';
+import { listDocuments } from '../../lib/documents';
 import { readOfflineIndex } from '../../lib/offline-index';
 import { deleteVehicle, getVehicle, updateVehicle } from '../../lib/vehicles';
+import type { CarDocument } from '../../types/document';
 import type { Vehicle } from '../../types/vehicle';
 
 export default function VehicleDetailScreen() {
@@ -16,6 +19,16 @@ export default function VehicleDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
+  const [documents, setDocuments] = useState<CarDocument[]>([]);
+
+  useFocusEffect(useCallback(() => {
+    if (!userId || !id) return;
+    let active = true;
+    void listDocuments(userId).catch(async () => (await readOfflineIndex(userId)).documents).then((items) => {
+      if (active) setDocuments(items.filter((item) => item.scope === 'driver' || item.vehicleId === id));
+    }).catch(() => { if (active) setDocuments([]); });
+    return () => { active = false; };
+  }, [id, userId]));
 
   useEffect(() => {
     let active = true;
@@ -55,6 +68,13 @@ export default function VehicleDetailScreen() {
           const updated = await updateVehicle(vehicle.id, input);
           setVehicle(updated);
         }} footer={<>
+          <Text style={styles.section}>Documents</Text>
+          {documents.map((document) => <DocumentCard key={document.id} document={document} />)}
+          {!documents.length ? <Text style={styles.missing}>No documents yet.</Text> : null}
+          <Pressable accessibilityRole="button" accessibilityLabel="Add document" disabled={offline}
+            onPress={() => router.push({ pathname: '/document/new', params: { vehicleId: vehicle.id } })} style={styles.add}>
+            <Text style={styles.addText}>Add document</Text>
+          </Pressable>
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Pressable accessibilityRole="button" accessibilityLabel="Delete vehicle" disabled={offline} onPress={confirmDelete} style={styles.delete}>
             <Text style={styles.deleteText}>Delete vehicle</Text>
@@ -72,6 +92,9 @@ const styles = StyleSheet.create({
   title: { color: '#13283a', fontSize: 28, fontWeight: '700', paddingHorizontal: 24, marginTop: 10 },
   status: { color: '#865f12', paddingHorizontal: 24, marginTop: 8, fontWeight: '600' },
   error: { color: '#ae2020' },
+  section: { color: '#13283a', fontSize: 20, fontWeight: '700', marginTop: 20 },
+  add: { backgroundColor: '#124a73', borderRadius: 10, minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  addText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   delete: { paddingVertical: 16, alignItems: 'center' },
   deleteText: { color: '#ae2020', fontSize: 16, fontWeight: '600' },
   missing: { color: '#526575', padding: 24 },

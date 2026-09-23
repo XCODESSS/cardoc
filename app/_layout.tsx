@@ -33,6 +33,7 @@ export default function RootLayout() {
       <Stack.Protected guard={auth.status === 'signedIn'}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="vehicle" />
+        <Stack.Screen name="document" />
       </Stack.Protected>
     </Stack>
   );
