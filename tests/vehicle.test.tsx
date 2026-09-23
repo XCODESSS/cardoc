@@ -38,6 +38,11 @@ jest.mock('../lib/auth', () => ({
   restoreAuth: jest.fn(),
 }));
 jest.mock('../lib/supabase', () => ({ getSupabaseClient: () => mockClient }));
+jest.mock('expo-local-authentication', () => ({
+  SecurityLevel: { NONE: 0 },
+  getEnrolledLevelAsync: jest.fn().mockResolvedValue(3),
+  authenticateAsync: jest.fn().mockResolvedValue({ success: true }),
+}));
 
 import NewVehicleScreen from '../app/vehicle/new';
 import VehiclesScreen from '../app/(tabs)/vehicles';
@@ -89,7 +94,9 @@ test('vehicle routes are inaccessible from the signed-out root', async () => {
   expect(screen.queryByText('vehicle')).toBeNull();
 });
 
-test('the signed-in root includes protected vehicle routes', async () => {
+test('the signed-in root opens vehicle routes after device unlock', async () => {
   const screen = await render(<RootLayout />);
-  expect(screen.getByText('vehicle')).toBeTruthy();
+  expect(screen.queryByText('vehicle')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('Unlock Cardoc'));
+  await waitFor(() => expect(screen.getByText('vehicle')).toBeTruthy());
 });

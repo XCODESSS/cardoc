@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 
 const mockStored = new Map<string, string>();
 const mockClient = {
@@ -12,6 +13,7 @@ const mockClient = {
   },
 };
 const mockConfigured = jest.fn(() => true);
+const mockAuthenticate = jest.fn();
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(async (key: string) => mockStored.get(key) ?? null),
@@ -21,6 +23,11 @@ jest.mock('expo-secure-store', () => ({
 jest.mock('../lib/supabase', () => ({
   getSupabaseClient: () => mockClient,
   isSupabaseConfigured: () => mockConfigured(),
+}));
+jest.mock('expo-local-authentication', () => ({
+  SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },
+  getEnrolledLevelAsync: jest.fn().mockResolvedValue(3),
+  authenticateAsync: (...args: unknown[]) => mockAuthenticate(...args),
 }));
 jest.mock('expo-router', () => {
   const React = require('react');
@@ -48,6 +55,7 @@ beforeEach(() => {
   mockConfigured.mockReturnValue(true);
   mockClient.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
   mockClient.auth.signOut.mockResolvedValue({ error: null });
+  mockAuthenticate.mockResolvedValue({ success: true });
 });
 
 test('invalid credentials show an error and do not enter the app', async () => {
@@ -71,16 +79,46 @@ test('successful login reaches the protected app route', async () => {
   expect(await getOfflineUserId()).toBe('driver-a');
 });
 
-test('a remount restores the persisted session', async () => {
+test('a restored session requires device unlock after each app start', async () => {
   mockClient.auth.getSession.mockResolvedValue({
     data: { session: { user: { id: 'driver-a' } } }, error: null,
   });
   const first = await render(<RootLayout />);
+  await waitFor(() => expect(first.getByText('Cardoc is locked')).toBeTruthy());
+  expect(first.queryByText('(tabs)')).toBeNull();
+  await fireEvent.press(first.getByLabelText('Unlock Cardoc'));
   await waitFor(() => expect(first.getByText('(tabs)')).toBeTruthy());
   await first.unmount();
   const second = await render(<RootLayout />);
+  await waitFor(() => expect(second.getByText('Cardoc is locked')).toBeTruthy());
+  expect(second.queryByText('(tabs)')).toBeNull();
+  await fireEvent.press(second.getByLabelText('Unlock Cardoc'));
   await waitFor(() => expect(second.getByText('(tabs)')).toBeTruthy());
   expect(mockClient.auth.getSession).toHaveBeenCalledTimes(2);
+  expect(mockAuthenticate).toHaveBeenCalledTimes(2);
+});
+
+test('returning from background requires a new device unlock', async () => {
+  const listeners: ((state: AppStateStatus) => void)[] = [];
+  const appStateSpy = jest.spyOn(AppState, 'addEventListener').mockImplementation((type, listener) => {
+    if (type === 'change') listeners.push(listener as (state: AppStateStatus) => void);
+    return { remove: jest.fn() };
+  });
+  mockClient.auth.getSession.mockResolvedValue({
+    data: { session: { user: { id: 'driver-a' } } }, error: null,
+  });
+  try {
+    const screen = await render(<RootLayout />);
+    await waitFor(() => expect(screen.getByText('Cardoc is locked')).toBeTruthy());
+    await fireEvent.press(screen.getByLabelText('Unlock Cardoc'));
+    await waitFor(() => expect(screen.getByText('(tabs)')).toBeTruthy());
+    await act(async () => { listeners.forEach((listener) => listener('background')); });
+    expect(screen.getByText('Cardoc is locked')).toBeTruthy();
+    expect(screen.queryByText('(tabs)')).toBeNull();
+    await screen.unmount();
+  } finally {
+    appStateSpy.mockRestore();
+  }
 });
 
 test('logout removes the cloud session and saved offline identity', async () => {
@@ -121,12 +159,14 @@ test('offline identity is only used after a network restoration failure', async 
   expect(await getOfflineUserId()).toBeNull();
 });
 
-test('offline identity alone never opens a protected route before the local gate exists', async () => {
+test('offline identity opens protected routes only after local authentication', async () => {
   mockStored.set('cardoc.offlineUserId', 'driver-a');
   mockClient.auth.getSession.mockResolvedValue({ data: { session: null }, error: { message: 'Network request failed' } });
   const screen = await render(<RootLayout />);
-  await waitFor(() => expect(screen.getByText('Offline documents are locked until device authentication is available.')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('Cardoc is locked')).toBeTruthy());
   expect(screen.queryByText('(tabs)')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('Unlock Cardoc'));
+  await waitFor(() => expect(screen.getByText('(tabs)')).toBeTruthy());
 });
 
 test('registration asks for email confirmation when Supabase issues no session', async () => {
