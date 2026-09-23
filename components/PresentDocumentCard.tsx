@@ -15,16 +15,17 @@ type Props = { slot: PresentSlot; onPress: () => void; busy?: boolean };
 export function PresentDocumentCard({ slot, onPress, busy = false }: Props) {
   const status = slot.status;
   const missing = status === 'missing';
+  const offline = slot.document?.offlineAvailable ?? false;
   const statusLabel = status === 'missing' ? 'Missing' : getDocumentStatusLabel(status);
   const kind = status === 'missing' ? 'missing' : status.kind;
-  const symbol = kind === 'missing' ? '–' : kind === 'expired' ? '✕' : kind === 'expiring' ? '!' : kind === 'unknown' ? '?' : '✓';
+  const symbol = kind === 'missing' ? '–' : !offline ? '↓' : kind === 'expired' ? '✕' : kind === 'expiring' ? '!' : kind === 'unknown' ? '?' : '✓';
   const tone = kind === 'missing' || kind === 'unknown' ? styles.neutral
     : kind === 'valid' ? styles.valid : kind === 'expiring' ? styles.warning : styles.error;
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${LABELS[slot.type]}, ${statusLabel}`}
+      accessibilityLabel={`${LABELS[slot.type]}, ${statusLabel}${!missing && !offline ? ', Download needed' : ''}`}
       accessibilityState={{ disabled: missing || busy }}
       disabled={missing || busy}
       onPress={onPress}
@@ -33,8 +34,9 @@ export function PresentDocumentCard({ slot, onPress, busy = false }: Props) {
       <View style={styles.text}>
         <Text style={styles.label}>{LABELS[slot.type]}</Text>
         <Text style={[styles.status, tone]}>{statusLabel}</Text>
+        {!missing && !offline ? <Text style={styles.offline}>Download needed</Text> : null}
       </View>
-      <Text accessible={false} style={[styles.symbol, tone]}>{symbol}</Text>
+      <Text accessible={false} style={[styles.symbol, !offline ? styles.neutral : tone]}>{symbol}</Text>
     </Pressable>
   );
 }
@@ -46,6 +48,7 @@ const styles = StyleSheet.create({
   text: { flex: 1, gap: 5 },
   label: { color: '#13283A', fontSize: 18, fontWeight: '700' },
   status: { fontSize: 15, fontWeight: '600' },
+  offline: { color: '#526575', fontSize: 14, fontWeight: '600' },
   symbol: { fontSize: 27, fontWeight: '700', marginLeft: 12 },
   neutral: { color: '#526575' },
   valid: { color: '#176B42' },

@@ -7,7 +7,6 @@ import { useAuthState } from '../../lib/auth';
 import { createDocumentCache } from '../../lib/document-cache';
 import { readOfflineIndex } from '../../lib/offline-index';
 import { getPresentSlots, openPresentDocument, type PresentSlot } from '../../lib/present';
-import type { CarDocument } from '../../types/document';
 import type { Vehicle } from '../../types/vehicle';
 
 export default function PresentScreen() {
@@ -27,13 +26,12 @@ export default function PresentScreen() {
       if (!active) return;
       setVehicle(found);
       if (!found) { setSlots([]); return; }
-      const documents = index.documents.filter((item) => item.userId === userId);
-      setSlots(getPresentSlots(vehicleId, documents, new Date(), userId));
+      const selected = getPresentSlots(vehicleId, index.documents, new Date(), userId);
       const cache = createDocumentCache(userId);
-      const checked = await Promise.all(documents.map(async (item): Promise<CarDocument> => ({
-        ...item, offlineAvailable: await cache.exists(item.id),
-      })));
-      if (active) setSlots(getPresentSlots(vehicleId, checked, new Date(), userId));
+      const checked = await Promise.all(selected.map(async (slot): Promise<PresentSlot> => slot.document ? ({
+        ...slot, document: { ...slot.document, offlineAvailable: await cache.exists(slot.document.id) },
+      }) : slot));
+      if (active) setSlots(checked);
     }).catch(() => { if (active) { setSlots([]); setError('Could not load saved documents.'); } });
     return () => { active = false; };
   }, [userId, vehicleId]);
@@ -53,7 +51,7 @@ export default function PresentScreen() {
   }
 
   if (!userId || !vehicleId) return <View style={styles.page}><Text>Present Mode is unavailable.</Text></View>;
-  const ready = slots?.length === 4 && slots.every((slot) => slot.document && slot.status !== 'missing' && slot.status.kind !== 'expired');
+  const ready = slots?.length === 4 && slots.every((slot) => slot.document?.offlineAvailable && slot.status !== 'missing' && slot.status.kind !== 'expired');
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content}>

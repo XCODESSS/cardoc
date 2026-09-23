@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
+import HomeScreen from '../app/(tabs)/index';
 import PresentScreen from '../app/present/[vehicleId]';
 import { getPresentSlots, openPresentDocument } from '../lib/present';
 import type { CarDocument } from '../types/document';
@@ -18,10 +19,14 @@ const mockExists = jest.fn();
 const mockPush = jest.fn();
 let mockAuthStatus: 'signedIn' | 'offline' = 'offline';
 
-jest.mock('expo-router', () => ({
-  router: { push: (...args: unknown[]) => mockPush(...args), back: jest.fn() },
-  useLocalSearchParams: () => ({ vehicleId: VEHICLE_ID }),
-}));
+jest.mock('expo-router', () => {
+  const { Text } = jest.requireActual('react-native');
+  return {
+    Link: ({ children }: { children: React.ReactNode }) => <Text>{children}</Text>,
+    router: { push: (...args: unknown[]) => mockPush(...args), back: jest.fn() },
+    useLocalSearchParams: () => ({ vehicleId: VEHICLE_ID }),
+  };
+});
 jest.mock('../lib/auth', () => ({
   getAuthState: () => ({ status: mockAuthStatus, userId: '11111111-1111-4111-8111-111111111111' }),
   useAuthState: () => ({ status: mockAuthStatus, userId: '11111111-1111-4111-8111-111111111111' }),
@@ -134,5 +139,30 @@ test('Present screen renders offline slots and one tap opens the viewer', async 
   expect(screen.getAllByText('Missing')).toHaveLength(3);
   await act(async () => { fireEvent.press(screen.getByRole('button', { name: /Registration \/ RC/i })); });
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/document/${RC_ID}`));
+  expect(mockSignedUrl).not.toHaveBeenCalled();
+});
+
+test('does not claim ready when metadata says cached but a required file is missing', async () => {
+  const documents = [
+    document(),
+    document({ id: '55555555-5555-4555-8555-555555555555', type: 'driving_license', scope: 'driver', vehicleId: null }),
+    document({ id: '66666666-6666-4666-8666-666666666666', type: 'insurance' }),
+    document({ id: '77777777-7777-4777-8777-777777777777', type: 'puc' }),
+  ];
+  mockReadOfflineIndex.mockResolvedValue({
+    vehicles: [{ id: VEHICLE_ID, userId: USER_ID, nickname: 'My BMW' }], documents,
+  });
+  mockExists.mockImplementation(async (id: string) => id !== documents[0].id);
+  const screen = await render(<PresentScreen />);
+  await waitFor(() => expect(screen.getByText('DOCUMENTS TO PRESENT')).toBeTruthy());
+  expect(screen.queryByText('READY TO PRESENT')).toBeNull();
+  expect(screen.getByText('Download needed')).toBeTruthy();
+});
+
+test('home has a direct Present action for the cached vehicle', async () => {
+  const screen = await render(<HomeScreen />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Present My BMW' })).toBeTruthy());
+  fireEvent.press(screen.getByRole('button', { name: 'Present My BMW' }));
+  expect(mockPush).toHaveBeenCalledWith(`/present/${VEHICLE_ID}`);
   expect(mockSignedUrl).not.toHaveBeenCalled();
 });
