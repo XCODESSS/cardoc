@@ -14,7 +14,7 @@ export default function SettingsScreen() {
     try {
       await logout();
     } catch {
-      setError('Cloud sign-out failed. Your local session has been cleared.');
+      setError('Sign-out could not finish. Cardoc is locked; try again when secure storage is available.');
     } finally {
       setLoading(false);
     }

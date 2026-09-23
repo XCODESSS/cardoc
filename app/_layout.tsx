@@ -15,7 +15,7 @@ export default function RootLayout() {
     return <View style={styles.center}><Text>Opening Cardoc…</Text></View>;
   }
   if (auth.status === 'configurationUnavailable') {
-    return <View style={styles.center}><Text>Cardoc is not configured yet. Add a Supabase URL and publishable key to .env.local, then restart the app.</Text></View>;
+    return <View style={styles.center}><Text>Cardoc setup is unavailable on this build.</Text></View>;
   }
   if (auth.status === 'storageError') {
     return <View style={styles.center}><Text>Secure storage is unavailable. Cardoc cannot safely keep a session on this device.</Text></View>;
