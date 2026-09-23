@@ -39,19 +39,22 @@ export default function VehicleDetailScreen() {
     let active = true;
     if (!userId || !id) return () => { active = false; };
     void (async () => {
+      let cachedVehicle: Vehicle | null = null;
       try {
-        if (auth.status === 'offline') {
-          const cached = await readOfflineIndex(userId);
-          if (active) { setVehicle(cached.vehicles.find((item) => item.id === id && item.userId === userId) ?? null); setOffline(true); }
-        } else {
-          const found = await getVehicle(id);
-          if (active) { setVehicle(found); setOffline(false); }
-        }
-      } catch {
         const cached = await readOfflineIndex(userId);
-        if (active) { setVehicle(cached.vehicles.find((item) => item.id === id && item.userId === userId) ?? null); setOffline(true); }
-      } finally {
-        if (active) setLoading(false);
+        cachedVehicle = cached.vehicles.find((item) => item.id === id && item.userId === userId) ?? null;
+      } catch {
+        // A failed cache read should not prevent a signed-in cloud refresh.
+      }
+      if (!active) return;
+      setVehicle(cachedVehicle);
+      if (cachedVehicle || auth.status === 'offline') { setOffline(true); setLoading(false); }
+      if (auth.status === 'offline') return;
+      try {
+        const found = await getVehicle(id);
+        if (active) { setVehicle(found); setOffline(false); setLoading(false); }
+      } catch {
+        if (active) { setOffline(true); setLoading(false); }
       }
     })();
     return () => { active = false; };
