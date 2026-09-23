@@ -9,7 +9,7 @@ This is an implementation checklist, not a claim that the app has passed a live 
 - Present Mode checks the account and exact object path. Cache hits use a local file without a network call. Cache misses use a 60-second signed URL and verify downloaded size before storing a local copy.
 - The app requires device authentication before protected routes after session restoration and after backgrounding. Auth tokens and the pending sign-out marker use SecureStore.
 - Cached documents, upload/download staging files, offline metadata, and reminder IDs are scoped by account. Sign-out attempts to clear every local store before ending the session. A pending marker blocks session restoration if cleanup was interrupted; the locked screen offers a retry.
-- Document deletion requires confirmation and removes the cloud object, cached copy, reminders, offline entry, and metadata. Partial failures leave metadata for a retry. Offline deletion is disabled.
+- Document deletion requires confirmation and removes the cloud object, cached copy, reminders, offline entry, and metadata. Metadata remains if an earlier step fails. A retry after cloud removal needs a live Storage API check because missing-object removal behavior is unverified. Offline deletion is disabled.
 - Android app backup is disabled. Environment files are ignored by Git except `.env.example`. No analytics SDK or service-role key is present in the app source, and document contents are not logged.
 
 ## Validation still required
@@ -19,5 +19,6 @@ This is an implementation checklist, not a claim that the app has passed a live 
 - Review device backup and local-file protection on each release platform. Offline document bytes are stored in app-private files but Cardoc does not implement client-side document encryption. Do not describe this MVP as end-to-end encrypted.
 - Verify sign-in and session restoration with realistic accounts on devices. Expo notes that large SecureStore values can be rejected on some iOS releases, historically around 2048 bytes; Supabase sessions may be larger. The current adapter fails closed on a storage error, but its device behavior has not been measured.
 - Confirm that a signed URL stops working after its 60-second expiry and that deleted objects cannot be fetched through an older URL.
+- Simulate a metadata deletion failure after Storage removal, then retry deletion. Verify the Storage API's missing-object response and that retries never mask permission or network errors.
 
 References: [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [Supabase Storage access control](https://supabase.com/docs/guides/storage/security/access-control), [Expo Android backup setting](https://docs.expo.dev/versions/v57.0.0/config/app/#allowbackup), [Expo SecureStore](https://docs.expo.dev/versions/latest/sdk/securestore/).
