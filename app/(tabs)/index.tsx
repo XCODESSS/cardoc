@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, router, type Href } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Link, router, useFocusEffect, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CardocTitle } from '../../components/CardocTitle';
@@ -11,22 +11,26 @@ export default function HomeScreen() {
   const auth = useAuthState();
   const userId = auth.status === 'signedIn' || auth.status === 'offline' ? auth.userId : null;
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const visibleVehicles = vehicles.filter((vehicle) => vehicle.userId === userId);
 
-  useEffect(() => {
-    if (!userId) return;
+  useFocusEffect(useCallback(() => {
+    if (!userId) {
+      setVehicles([]);
+      return;
+    }
     let active = true;
     void readOfflineIndex(userId).then((index) => {
       if (active) setVehicles(index.vehicles.filter((vehicle) => vehicle.userId === userId));
     }).catch(() => { if (active) setVehicles([]); });
     return () => { active = false; };
-  }, [userId]);
+  }, [userId]));
 
   return (
     <View style={styles.container}>
       <CardocTitle />
-      {vehicles.length ? <>
+      {visibleVehicles.length ? <>
         <Text style={styles.heading}>Your vehicles</Text>
-        {vehicles.map((vehicle) => <Pressable
+        {visibleVehicles.map((vehicle) => <Pressable
           key={vehicle.id}
           accessibilityRole="button"
           accessibilityLabel={`Present ${vehicle.nickname}`}
