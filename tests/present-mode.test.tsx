@@ -3,6 +3,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import HomeScreen from '../app/(tabs)/index';
 import PresentScreen from '../app/present/[vehicleId]';
+import VehicleDetailScreen from '../app/vehicle/[id]';
 import { getPresentSlots, openPresentDocument } from '../lib/present';
 import type { CarDocument } from '../types/document';
 
@@ -16,17 +17,23 @@ const mockSignedUrl = jest.fn();
 const mockDownloadFile = jest.fn();
 const mockReadOfflineIndex = jest.fn();
 const mockExists = jest.fn();
+const mockGetVehicle = jest.fn();
+const mockListDocuments = jest.fn();
 const mockPush = jest.fn();
 let mockAuthStatus: 'signedIn' | 'offline' = 'offline';
 
 jest.mock('expo-router', () => {
   const { Text } = jest.requireActual('react-native');
+  const React = jest.requireActual('react');
   return {
     Link: ({ children }: { children: React.ReactNode }) => <Text>{children}</Text>,
     router: { push: (...args: unknown[]) => mockPush(...args), back: jest.fn() },
-    useLocalSearchParams: () => ({ vehicleId: VEHICLE_ID }),
+    useLocalSearchParams: () => ({ vehicleId: VEHICLE_ID, id: VEHICLE_ID }),
+    useFocusEffect: (callback: () => void) => React.useEffect(callback, [callback]),
   };
 });
+jest.mock('../lib/vehicles', () => ({ getVehicle: (...args: unknown[]) => mockGetVehicle(...args), updateVehicle: jest.fn(), deleteVehicle: jest.fn() }));
+jest.mock('../lib/documents', () => ({ listDocuments: (...args: unknown[]) => mockListDocuments(...args) }));
 jest.mock('../lib/auth', () => ({
   getAuthState: () => ({ status: mockAuthStatus, userId: '11111111-1111-4111-8111-111111111111' }),
   useAuthState: () => ({ status: mockAuthStatus, userId: '11111111-1111-4111-8111-111111111111' }),
@@ -65,6 +72,8 @@ beforeEach(() => {
   mockGet.mockResolvedValue('file:///documents/rc.pdf');
   mockSave.mockResolvedValue('file:///documents/rc.pdf');
   mockExists.mockResolvedValue(true);
+  mockGetVehicle.mockResolvedValue({ id: VEHICLE_ID, userId: USER_ID, nickname: 'My BMW', registrationNumber: 'GJ05AB1234', manufacturer: null, model: null, year: null });
+  mockListDocuments.mockResolvedValue([]);
   mockReadOfflineIndex.mockResolvedValue({
     vehicles: [{ id: VEHICLE_ID, userId: USER_ID, nickname: 'My BMW', registrationNumber: 'GJ05AB1234' }],
     documents: [document()],
@@ -165,4 +174,22 @@ test('home has a direct Present action for the cached vehicle', async () => {
   fireEvent.press(screen.getByRole('button', { name: 'Present My BMW' }));
   expect(mockPush).toHaveBeenCalledWith(`/present/${VEHICLE_ID}`);
   expect(mockSignedUrl).not.toHaveBeenCalled();
+});
+
+test('vehicle detail opens Present in one tap', async () => {
+  mockAuthStatus = 'signedIn';
+  const screen = await render(<VehicleDetailScreen />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Present documents' })).toBeTruthy());
+  fireEvent.press(screen.getByRole('button', { name: 'Present documents' }));
+  expect(mockPush).toHaveBeenCalledWith(`/present/${VEHICLE_ID}`);
+});
+
+test('vehicle detail opens cached Present while offline without querying the cloud', async () => {
+  const screen = await render(<VehicleDetailScreen />);
+  const present = await screen.findByRole('button', { name: 'Present documents' });
+  expect(screen.getByText('Offline · read only')).toBeTruthy();
+  fireEvent.press(present);
+  expect(mockPush).toHaveBeenCalledWith(`/present/${VEHICLE_ID}`);
+  expect(mockGetVehicle).not.toHaveBeenCalled();
+  expect(mockListDocuments).not.toHaveBeenCalled();
 });

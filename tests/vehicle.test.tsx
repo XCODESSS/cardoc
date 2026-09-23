@@ -92,6 +92,7 @@ test('vehicle routes are inaccessible from the signed-out root', async () => {
   mockAuthStatus.mockReturnValue('signedOut');
   const screen = await render(<RootLayout />);
   expect(screen.queryByText('vehicle')).toBeNull();
+  expect(screen.queryByText('present')).toBeNull();
 });
 
 test('the signed-in root opens vehicle routes after device unlock', async () => {
@@ -99,4 +100,5 @@ test('the signed-in root opens vehicle routes after device unlock', async () => 
   expect(screen.queryByText('vehicle')).toBeNull();
   await fireEvent.press(screen.getByLabelText('Unlock Cardoc'));
   await waitFor(() => expect(screen.getByText('vehicle')).toBeTruthy());
+  expect(screen.getByText('present')).toBeTruthy();
 });

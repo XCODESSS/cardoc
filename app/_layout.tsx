@@ -90,6 +90,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="vehicle" />
         <Stack.Screen name="document" />
+        <Stack.Screen name="present" />
       </Stack.Protected>
     </Stack>
   );

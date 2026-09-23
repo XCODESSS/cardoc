@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { VehicleForm } from '../../components/VehicleForm';
@@ -14,38 +14,46 @@ import type { Vehicle } from '../../types/vehicle';
 export default function VehicleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const auth = useAuthState();
-  const userId = auth.status === 'signedIn' ? auth.userId : null;
+  const userId = auth.status === 'signedIn' || auth.status === 'offline' ? auth.userId : null;
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [offline, setOffline] = useState(false);
+  const [offline, setOffline] = useState(auth.status === 'offline');
   const [error, setError] = useState('');
   const [documents, setDocuments] = useState<CarDocument[]>([]);
 
   useFocusEffect(useCallback(() => {
     if (!userId || !id) return;
     let active = true;
-    void listDocuments(userId).catch(async () => (await readOfflineIndex(userId)).documents).then((items) => {
-      if (active) setDocuments(items.filter((item) => item.scope === 'driver' || item.vehicleId === id));
+    const load = auth.status === 'offline'
+      ? readOfflineIndex(userId).then((index) => index.documents)
+      : listDocuments(userId).catch(async () => (await readOfflineIndex(userId)).documents);
+    void load.then((items) => {
+      if (active) setDocuments(items.filter((item) => item.userId === userId && (item.scope === 'driver' || item.vehicleId === id)));
     }).catch(() => { if (active) setDocuments([]); });
     return () => { active = false; };
-  }, [id, userId]));
+  }, [auth.status, id, userId]));
 
   useEffect(() => {
     let active = true;
     if (!userId || !id) return () => { active = false; };
     void (async () => {
       try {
-        const found = await getVehicle(id);
-        if (active) setVehicle(found);
+        if (auth.status === 'offline') {
+          const cached = await readOfflineIndex(userId);
+          if (active) { setVehicle(cached.vehicles.find((item) => item.id === id && item.userId === userId) ?? null); setOffline(true); }
+        } else {
+          const found = await getVehicle(id);
+          if (active) { setVehicle(found); setOffline(false); }
+        }
       } catch {
         const cached = await readOfflineIndex(userId);
-        if (active) { setVehicle(cached.vehicles.find((item) => item.id === id) ?? null); setOffline(true); }
+        if (active) { setVehicle(cached.vehicles.find((item) => item.id === id && item.userId === userId) ?? null); setOffline(true); }
       } finally {
         if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
-  }, [id, userId]);
+  }, [auth.status, id, userId]);
 
   function confirmDelete() {
     Alert.alert('Delete vehicle?', 'This vehicle will be removed from Cardoc.', [
@@ -64,6 +72,10 @@ export default function VehicleDetailScreen() {
       {loading ? <ActivityIndicator accessibilityLabel="Loading vehicle" /> : vehicle ? <>
         <Text style={styles.title}>{vehicle.nickname}</Text>
         {offline ? <Text style={styles.status}>Offline · read only</Text> : null}
+        <Pressable accessibilityRole="button" accessibilityLabel="Present documents"
+          onPress={() => router.push(`/present/${vehicle.id}` as Href)} style={styles.present}>
+          <Text style={styles.presentText}>Present documents</Text>
+        </Pressable>
         <VehicleForm key={vehicle.id} vehicle={vehicle} disabled={offline} saveLabel="Save changes" onSave={async (input) => {
           const updated = await updateVehicle(vehicle.id, input);
           setVehicle(updated);
@@ -91,6 +103,8 @@ const styles = StyleSheet.create({
   backText: { color: '#124a73', fontSize: 16 },
   title: { color: '#13283a', fontSize: 28, fontWeight: '700', paddingHorizontal: 24, marginTop: 10 },
   status: { color: '#865f12', paddingHorizontal: 24, marginTop: 8, fontWeight: '600' },
+  present: { backgroundColor: '#124a73', borderRadius: 10, minHeight: 58, alignItems: 'center', justifyContent: 'center', marginHorizontal: 24, marginTop: 18 },
+  presentText: { color: '#fff', fontSize: 18, fontWeight: '700' },
   error: { color: '#ae2020' },
   section: { color: '#13283a', fontSize: 20, fontWeight: '700', marginTop: 20 },
   add: { backgroundColor: '#124a73', borderRadius: 10, minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
