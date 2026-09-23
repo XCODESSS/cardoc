@@ -7,6 +7,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <CardocTitle />
+      <Link href="/vehicles">Vehicles</Link>
       <Link href="/settings">Settings</Link>
     </View>
   );
