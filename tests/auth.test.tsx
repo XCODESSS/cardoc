@@ -257,6 +257,109 @@ test('offline identity is only used after a network restoration failure', async 
   expect(await getOfflineUserId()).toBeNull();
 });
 
+test('a stalled session restoration opens cached documents through offline unlock', async () => {
+  jest.useFakeTimers();
+  try {
+    mockStored.set('cardoc.offlineUserId', 'driver-a');
+    mockClient.auth.getSession.mockImplementation(() => new Promise(() => {}));
+    const restoration = restoreAuth();
+    await jest.advanceTimersByTimeAsync(2500);
+    expect(await restoration).toMatchObject({ status: 'offline', userId: 'driver-a' });
+    expect(mockClearAccountLocalState).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a stalled session restoration without a saved identity stays signed out', async () => {
+  jest.useFakeTimers();
+  try {
+    mockClient.auth.getSession.mockImplementation(() => new Promise(() => {}));
+    const restoration = restoreAuth();
+    await jest.advanceTimersByTimeAsync(2500);
+    expect(await restoration).toMatchObject({ status: 'signedOut', userId: null });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a stalled session restoration cannot bypass a pending logout', async () => {
+  mockStored.set('cardoc.offlineUserId', 'driver-a');
+  mockStored.set('cardoc.pendingLogoutUserId', 'driver-a');
+  mockClient.auth.getSession.mockImplementation(() => new Promise(() => {}));
+  expect(await restoreAuth()).toMatchObject({ status: 'storageError', userId: null });
+  expect(mockClient.auth.getSession).not.toHaveBeenCalled();
+});
+
+test('secure storage failure during a stalled session restoration keeps documents locked', async () => {
+  jest.useFakeTimers();
+  try {
+    mockClient.auth.getSession.mockImplementation(() => new Promise(() => {}));
+    jest.mocked(SecureStore.getItemAsync)
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error('Keystore unavailable'));
+    const restoration = restoreAuth();
+    await jest.advanceTimersByTimeAsync(2500);
+    expect(await restoration).toMatchObject({ status: 'storageError', userId: null });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a session returned after the offline timeout cannot switch the account', async () => {
+  jest.useFakeTimers();
+  try {
+    mockStored.set('cardoc.offlineUserId', 'driver-a');
+    let returnSession: ((result: unknown) => void) | undefined;
+    mockClient.auth.getSession.mockImplementation(() => new Promise((resolve) => { returnSession = resolve; }));
+    const restoration = restoreAuth();
+    await jest.advanceTimersByTimeAsync(2500);
+    expect(await restoration).toMatchObject({ status: 'offline', userId: 'driver-a' });
+    returnSession?.({ data: { session: { user: { id: 'driver-b' } } }, error: null });
+    await Promise.resolve();
+    expect(getAuthState()).toMatchObject({ status: 'offline', userId: 'driver-a' });
+    expect(await getOfflineUserId()).toBe('driver-a');
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a stalled restore cannot reopen cached documents after logout', async () => {
+  jest.useFakeTimers();
+  try {
+    mockStored.set('cardoc.offlineUserId', 'driver-a');
+    mockClient.auth.getSession.mockImplementation(() => new Promise(() => {}));
+    const restoration = restoreAuth();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(mockClient.auth.getSession).toHaveBeenCalledTimes(1);
+    await logout();
+    await jest.advanceTimersByTimeAsync(2500);
+    await restoration;
+    expect(getAuthState()).toMatchObject({ status: 'signedOut', userId: null });
+    expect(await getOfflineUserId()).toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('logout waits for an in-flight restored identity write before clearing it', async () => {
+  let finishWrite: (() => void) | undefined;
+  jest.mocked(SecureStore.setItemAsync).mockImplementationOnce(async (key, value) => {
+    await new Promise<void>((resolve) => { finishWrite = resolve; });
+    mockStored.set(key, value);
+  });
+  mockClient.auth.getSession.mockResolvedValue({ data: { session: { user: { id: 'driver-a' } } }, error: null });
+  const restoration = restoreAuth();
+  await waitFor(() => expect(finishWrite).toBeDefined());
+  const signOut = logout();
+  await Promise.resolve();
+  expect(mockClearAccountLocalState).not.toHaveBeenCalled();
+  finishWrite?.();
+  await Promise.all([restoration, signOut]);
+  expect(getAuthState()).toMatchObject({ status: 'signedOut', userId: null });
+  expect(await getOfflineUserId()).toBeNull();
+});
+
 test('offline identity opens protected routes only after local authentication', async () => {
   mockStored.set('cardoc.offlineUserId', 'driver-a');
   mockClient.auth.getSession.mockResolvedValue({ data: { session: null }, error: { message: 'Network request failed' } });

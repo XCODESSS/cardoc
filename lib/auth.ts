@@ -16,6 +16,13 @@ const listeners = new Set<() => void>();
 let state: AuthState = { status: 'loading', userId: null };
 let authEventSubscription: { unsubscribe(): void } | null = null;
 let logoutInProgress = false;
+let authGeneration = 0;
+let pendingRestoreIdentityWrite: Promise<void> | null = null;
+const SESSION_RESTORE_TIMEOUT_MS = 2500;
+
+async function waitForRestoreIdentityWrite() {
+  try { await pendingRestoreIdentityWrite; } catch { /* Cleanup still needs to run after a failed write. */ }
+}
 
 async function accountIdForCleanup(previousUserId: string | null): Promise<string | null> {
   try {
@@ -29,10 +36,12 @@ async function accountIdForCleanup(previousUserId: string | null): Promise<strin
 }
 
 async function handleExternalSignOut() {
+  authGeneration += 1;
   logoutInProgress = true;
   const previousUserId = state.userId;
   publish({ status: 'loading', userId: null });
   try {
+    await waitForRestoreIdentityWrite();
     const userId = await accountIdForCleanup(previousUserId);
     if (userId) {
       await savePendingLogoutUserId(userId);
@@ -92,6 +101,9 @@ function validateCredentials(email: string, password: string) {
 }
 
 async function activateSession(userId: string) {
+  const generation = ++authGeneration;
+  await waitForRestoreIdentityWrite();
+  if (generation !== authGeneration || logoutInProgress) throw new Error('Sign-in was interrupted.');
   try {
     await saveOfflineUserId(userId);
   } catch {
@@ -141,10 +153,12 @@ export async function register(email: string, password: string): Promise<'signed
 
 export async function logout() {
   if (logoutInProgress) return;
+  authGeneration += 1;
   logoutInProgress = true;
   const previousUserId = state.userId;
   publish({ status: 'loading', userId: null });
   try {
+    await waitForRestoreIdentityWrite();
     const userId = await accountIdForCleanup(previousUserId);
     if (userId) {
       await savePendingLogoutUserId(userId);
@@ -175,36 +189,68 @@ function isNetworkFailure(error: { message: string } | null) {
   return Boolean(error && /network|fetch|offline|connection|timeout/i.test(error.message));
 }
 
+async function getSessionWithTimeout() {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      requireClient().auth.getSession().then((result) => ({ kind: 'session' as const, result })),
+      new Promise<{ kind: 'timeout' }>((resolve) => {
+        timeout = setTimeout(() => resolve({ kind: 'timeout' }), SESSION_RESTORE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export async function restoreAuth(): Promise<AuthState> {
+  const generation = ++authGeneration;
+  const isCurrent = () => generation === authGeneration && !logoutInProgress;
   if (!isSupabaseConfigured()) {
-    publish({ status: 'configurationUnavailable', userId: null });
+    if (isCurrent()) publish({ status: 'configurationUnavailable', userId: null });
     return state;
   }
   try {
-    if (await getPendingLogoutUserId()) {
+    const pendingLogoutUserId = await getPendingLogoutUserId();
+    if (!isCurrent()) return state;
+    if (pendingLogoutUserId) {
       publish({ status: 'storageError', userId: null });
       return state;
     }
-    const { data, error } = await requireClient().auth.getSession();
+    const sessionResult = await getSessionWithTimeout();
+    if (!isCurrent()) return state;
+    if (sessionResult.kind === 'timeout') {
+      const userId = await readOfflineUserId();
+      if (isCurrent()) publish(userId ? { status: 'offline', userId } : { status: 'signedOut', userId: null });
+      return state;
+    }
+    const { data, error } = sessionResult.result;
     if (data.session?.user.id) {
-      await saveOfflineUserId(data.session.user.id);
-      publish({ status: 'signedIn', userId: data.session.user.id });
+      await waitForRestoreIdentityWrite();
+      if (!isCurrent()) return state;
+      const write = saveOfflineUserId(data.session.user.id);
+      pendingRestoreIdentityWrite = write;
+      try { await write; } finally {
+        if (pendingRestoreIdentityWrite === write) pendingRestoreIdentityWrite = null;
+      }
+      if (isCurrent()) publish({ status: 'signedIn', userId: data.session.user.id });
     } else if (isNetworkFailure(error)) {
       const userId = await readOfflineUserId();
-      publish(userId ? { status: 'offline', userId } : { status: 'signedOut', userId: null });
+      if (isCurrent()) publish(userId ? { status: 'offline', userId } : { status: 'signedOut', userId: null });
     } else {
-      await logout();
+      if (isCurrent()) await logout();
     }
   } catch (error) {
+    if (!isCurrent()) return state;
     if (error instanceof Error && isNetworkFailure(error)) {
       try {
         const userId = await readOfflineUserId();
-        publish(userId ? { status: 'offline', userId } : { status: 'signedOut', userId: null });
+        if (isCurrent()) publish(userId ? { status: 'offline', userId } : { status: 'signedOut', userId: null });
       } catch {
-        publish({ status: 'storageError', userId: null });
+        if (isCurrent()) publish({ status: 'storageError', userId: null });
       }
     } else {
-      publish({ status: 'storageError', userId: null });
+      if (isCurrent()) publish({ status: 'storageError', userId: null });
     }
   }
   return state;
