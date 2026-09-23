@@ -6,6 +6,7 @@ import DocumentViewer from '../../components/DocumentViewer';
 import { useAuthState } from '../../lib/auth';
 import { getDocument, getLocalDocumentUri } from '../../lib/documents';
 import { readOfflineIndex } from '../../lib/offline-index';
+import { openPresentDocument } from '../../lib/present';
 import type { CarDocument } from '../../types/document';
 
 type ViewerState =
@@ -51,7 +52,14 @@ export default function DocumentScreen() {
         if (active) setState({ kind: 'unavailable', message: 'Document unavailable.' });
         return;
       }
-      const uri = await getLocalDocumentUri(document);
+      let uri = await getLocalDocumentUri(document);
+      if (!uri && auth.status === 'signedIn') {
+        try {
+          uri = await openPresentDocument(document);
+        } catch {
+          // Keep the document unavailable if the private download fails.
+        }
+      }
       if (active) setState(uri
         ? { kind: 'ready', document, uri }
         : { kind: 'unavailable', message: 'Offline copy unavailable. Connect to the internet and download this document.' });
