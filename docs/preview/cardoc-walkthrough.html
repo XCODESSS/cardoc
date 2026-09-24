@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Cardoc MVP · Sample walkthrough</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #13283a; background: #edf3f6; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button { font: inherit; cursor: pointer; }
+    button:focus-visible { outline: 3px solid #208aef; outline-offset: 3px; }
+    [hidden] { display: none !important; }
+    .notice { max-width: 820px; margin: 18px auto 14px; padding: 14px 18px; background: #fff; border: 1px solid #c5d0d9; border-radius: 14px; line-height: 1.45; }
+    .notice strong { display: block; margin-bottom: 3px; color: #124a73; }
+    .notice p { margin: 0; color: #41586a; font-size: 14px; }
+    .phone { position: relative; max-width: 414px; height: min(820px, calc(100dvh - 148px)); min-height: 610px; margin: 0 auto 24px; overflow: hidden; border: 8px solid #172633; border-radius: 36px; background: #fff; box-shadow: 0 22px 70px #17334b33; }
+    .screen { height: 100%; overflow-y: auto; scrollbar-width: thin; background: #fff; }
+    .sample-strip { position: sticky; top: 0; z-index: 2; padding: 8px 20px; background: #e8f2f9; border-bottom: 1px solid #c5d0d9; color: #124a73; font-size: 11px; font-weight: 800; letter-spacing: .07em; text-align: center; }
+    .content { padding: 22px 24px 32px; }
+    .home-content { min-height: calc(100% - 31px); display: flex; flex-direction: column; justify-content: center; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { color: #111827; font-size: 32px; line-height: 1.1; }
+    h2 { font-size: 28px; line-height: 1.15; }
+    h3 { font-size: 20px; }
+    .eyebrow { color: #526575; font-size: 12px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    .hint { color: #526575; font-size: 14px; line-height: 1.45; }
+    .section-title { margin: 34px 0 14px; font-size: 20px; }
+    .primary { display: block; width: 100%; min-height: 58px; padding: 14px 20px; border: 0; border-radius: 12px; background: #124a73; color: #fff; font-size: 18px; font-weight: 700; text-align: left; }
+    .primary:hover { background: #0c3d60; }
+    .text-button { display: block; padding: 14px 0; border: 0; background: transparent; color: #124a73; font-size: 16px; text-align: left; }
+    .back { min-height: 44px; padding: 0; border: 0; background: transparent; color: #124a73; font-size: 17px; font-weight: 600; }
+    .vehicle-row { display: flex; width: 100%; justify-content: space-between; align-items: center; padding: 18px; border: 1px solid #d6e0e6; border-radius: 14px; background: #fff; color: #13283a; text-align: left; }
+    .vehicle-row strong { display: block; font-size: 20px; }
+    .vehicle-row small { display: block; margin-top: 4px; color: #526575; font-size: 14px; }
+    .vehicle-row .chevron { color: #526575; font-size: 26px; }
+    .metadata { padding: 18px; border-radius: 12px; background: #f1f6f8; }
+    .metadata dt { color: #526575; font-size: 13px; }
+    .metadata dd { margin: 2px 0 14px; font-weight: 650; }
+    .metadata dd:last-child { margin-bottom: 0; }
+    .document-row { padding: 16px; margin-bottom: 10px; border-radius: 12px; background: #f1f6f8; }
+    .document-row strong { display: block; font-size: 17px; }
+    .document-row small { display: block; margin-top: 4px; color: #526575; font-size: 14px; }
+    .present { background: #f7f9fa; }
+    .present h2 { margin: 18px 0 16px; font-weight: 800; }
+    .ready { margin: 0 0 22px; color: #176b42; font-size: 14px; font-weight: 800; letter-spacing: .12em; }
+    .slots { display: grid; gap: 12px; }
+    .slot { display: flex; width: 100%; min-height: 84px; justify-content: space-between; align-items: center; padding: 15px 20px; border: 1px solid #c5d0d9; border-radius: 14px; background: #fff; text-align: left; }
+    .slot:hover { border-color: #124a73; }
+    .slot strong { display: block; color: #13283a; font-size: 18px; }
+    .slot small { display: block; margin-top: 5px; font-size: 15px; font-weight: 600; }
+    .slot .symbol { margin-left: 12px; font-size: 26px; font-weight: 800; }
+    .valid { color: #176b42; }
+    .warning { color: #905b00; }
+    .viewer { display: flex; flex-direction: column; overflow: hidden; background: #071521; }
+    .viewer .sample-strip { flex: 0 0 auto; }
+    .viewer-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; color: #fff; }
+    .viewer-toolbar .back, .viewer-toolbar .eyebrow { color: #fff; }
+    .viewer .document-surface { display: flex; flex: 1 1 auto; min-height: 0; align-items: center; justify-content: center; overflow-y: auto; padding: 18px; }
+    .paper { position: relative; width: 100%; max-width: 340px; min-height: 360px; padding: 28px 22px; overflow: hidden; background: #fff; box-shadow: 0 14px 35px #0006; }
+    .paper::after { content: "SAMPLE · NOT VALID"; position: absolute; left: -20%; top: 43%; width: 140%; transform: rotate(-27deg); color: #a2272730; font-size: clamp(23px, 7vw, 34px); font-weight: 900; text-align: center; pointer-events: none; }
+    .paper-label { margin-bottom: 28px; padding-bottom: 12px; border-bottom: 2px solid #124a73; color: #124a73; font-size: 12px; font-weight: 800; letter-spacing: .1em; }
+    .paper h2 { margin-bottom: 30px; font-size: 22px; }
+    .paper dl { display: grid; gap: 4px; margin: 0; }
+    .paper dt { color: #526575; font-size: 12px; }
+    .paper dd { margin: 0 0 15px; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+    .viewer-details { flex: 0 0 auto; padding: 20px 24px 28px; background: #fff; }
+    .viewer-details h2 { margin-bottom: 7px; font-size: 24px; }
+    .viewer-details p { margin-bottom: 0; color: #375064; font-size: 17px; }
+    .viewer-details .text-button { margin-left: auto; font-weight: 700; }
+    @media (max-width: 520px) {
+      :root { background: #fff; }
+      body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+      .notice { flex: 0 0 auto; margin: 0; border: 0; border-bottom: 1px solid #c5d0d9; border-radius: 0; }
+      .phone { flex: 1 1 auto; width: 100%; max-width: none; height: auto; min-height: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+    }
+    @media (max-height: 720px) and (min-width: 521px) { .phone { height: 610px; } }
+  </style>
+</head>
+<body>
+  <aside class="notice" aria-label="Walkthrough limitations">
+    <strong>Interactive sample · This is not the installed Cardoc app</strong>
+    <p>Every person, vehicle and document below is fictional. This standalone page has no account, upload, cloud storage, device lock or offline document cache. It shows the intended navigation and presentation layout.</p>
+  </aside>
+  <main class="phone" aria-label="Cardoc sample walkthrough">
+    <section class="screen" data-screen="home" aria-labelledby="home-title">
+      <div class="sample-strip">SAMPLE DATA · BROWSER WALKTHROUGH</div>
+      <div class="content home-content">
+        <p class="eyebrow">Vehicle documents in reach</p>
+        <h1 id="home-title" tabindex="-1">Cardoc</h1>
+        <p class="hint">Imagine someone asks to see your RC right now.</p>
+        <h2 class="section-title">Your vehicles</h2>
+        <button class="primary" type="button" data-go="present">Present · My BMW</button>
+        <button class="text-button" type="button" data-go="vehicles">Vehicles</button>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="vehicles" aria-labelledby="vehicles-title" hidden>
+      <div class="sample-strip">SAMPLE DATA · BROWSER WALKTHROUGH</div>
+      <div class="content">
+        <button class="back" type="button" data-back>‹ Home</button>
+        <h2 id="vehicles-title" tabindex="-1">Vehicles</h2>
+        <p class="hint">One fictional vehicle is preloaded for this walkthrough.</p>
+        <button class="vehicle-row" type="button" data-go="vehicle">
+          <span><strong>My BMW</strong><small>GJ00XX0000</small><small>BMW 330i · 2022</small></span><span class="chevron" aria-hidden="true">›</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="vehicle" aria-labelledby="vehicle-title" hidden>
+      <div class="sample-strip">SAMPLE DATA · BROWSER WALKTHROUGH</div>
+      <div class="content">
+        <button class="back" type="button" data-back>‹ Vehicles</button>
+        <h2 id="vehicle-title" tabindex="-1">My BMW</h2>
+        <button class="primary" type="button" data-go="present">Present documents</button>
+        <h3 class="section-title">Vehicle details</h3>
+        <dl class="metadata"><dt>Nickname</dt><dd>My BMW</dd><dt>Registration number</dt><dd>GJ00XX0000</dd><dt>Manufacturer and model</dt><dd>BMW 330i</dd><dt>Year</dt><dd>2022</dd></dl>
+        <h3 class="section-title">Documents</h3>
+        <div class="document-row"><strong>Registration / RC</strong><small>Vehicle · valid</small></div>
+        <div class="document-row"><strong>Driving Licence</strong><small>Driver · valid</small></div>
+        <div class="document-row"><strong>Insurance</strong><small>Vehicle · valid</small></div>
+        <div class="document-row"><strong>PUC</strong><small>Vehicle · expiring in 12 days</small></div>
+        <p class="hint">In the installed app, vehicles and documents are added through forms. This walkthrough uses fixed sample entries.</p>
+      </div>
+    </section>
+
+    <section class="screen present" data-screen="present" aria-labelledby="present-title" hidden>
+      <div class="sample-strip">SAMPLE DATA · BROWSER WALKTHROUGH</div>
+      <div class="content">
+        <button class="back" type="button" data-back>‹ Back</button>
+        <h2 id="present-title" tabindex="-1">My BMW</h2>
+        <p class="ready">READY TO PRESENT · SAMPLE</p>
+        <div class="slots">
+          <button class="slot" type="button" data-doc="registration" aria-label="Open sample Registration / RC document"><span><strong>Registration / RC</strong><small class="valid">Valid until 1 Jan 2032</small></span><span class="symbol valid" aria-hidden="true">✓</span></button>
+          <button class="slot" type="button" data-doc="driving_license" aria-label="Open sample Driving Licence document"><span><strong>Driving Licence</strong><small class="valid">Valid until 14 Jun 2031</small></span><span class="symbol valid" aria-hidden="true">✓</span></button>
+          <button class="slot" type="button" data-doc="insurance" aria-label="Open sample Insurance document"><span><strong>Insurance</strong><small class="valid">Valid until 16 Mar 2027</small></span><span class="symbol valid" aria-hidden="true">✓</span></button>
+          <button class="slot" type="button" data-doc="puc" aria-label="Open sample PUC document"><span><strong>PUC</strong><small class="warning">Expires in 12 days</small></span><span class="symbol warning" aria-hidden="true">!</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen viewer" data-screen="document" aria-labelledby="viewer-title" hidden>
+      <div class="sample-strip">FICTIONAL DOCUMENT · NOT VALID FOR PRESENTATION</div>
+      <div class="viewer-toolbar"><button class="back" type="button" data-back>‹ Back</button><span class="eyebrow">Sample viewer</span></div>
+      <div class="document-surface">
+        <article class="paper" aria-label="Fictional sample document">
+          <div class="paper-label">CARDOC WALKTHROUGH · FICTIONAL RECORD</div>
+          <h2 id="paper-title">Registration / RC</h2>
+          <dl><dt>Holder</dt><dd>Alex Example</dd><dt id="paper-field-label">Registration number</dt><dd id="paper-number">GJ00XX0000</dd><dt>Vehicle</dt><dd>BMW 330i · 2022</dd><dt>Issued by</dt><dd id="paper-issuer">Example Authority</dd></dl>
+        </article>
+      </div>
+      <div class="viewer-details"><h2 id="viewer-title" tabindex="-1">Registration / RC</h2><p id="viewer-validity">Valid until 1 January 2032</p><button class="text-button" type="button" data-back>Close</button></div>
+    </section>
+  </main>
+  <script>
+    (() => {
+      'use strict';
+      const sampleDocuments = {
+        registration: { title: 'Registration / RC', field: 'Registration number', number: 'GJ00XX0000', issuer: 'Example Authority', validity: 'Valid until 1 January 2032' },
+        driving_license: { title: 'Driving Licence', field: 'Licence number', number: 'SAMPLE-DL-0001', issuer: 'Example Authority', validity: 'Valid until 14 June 2031' },
+        insurance: { title: 'Insurance', field: 'Policy number', number: 'SAMPLE-POLICY-0001', issuer: 'Example Insurer', validity: 'Valid until 16 March 2027' },
+        puc: { title: 'PUC', field: 'Certificate number', number: 'SAMPLE-PUC-0001', issuer: 'Example Test Centre', validity: 'Expires in 12 days · sample status' },
+      };
+      const screens = new Map([...document.querySelectorAll('[data-screen]')].map((element) => [element.dataset.screen, element]));
+      const history = ['home'];
+
+      function show(name, addToHistory = true) {
+        if (!screens.has(name)) return;
+        if (addToHistory) history.push(name);
+        for (const [key, screen] of screens) {
+          screen.hidden = key !== name;
+          if (key === name) screen.scrollTop = 0;
+        }
+        screens.get(name).querySelector('h1[tabindex], h2[tabindex]')?.focus();
+      }
+
+      function back() {
+        if (history.length <= 1) return;
+        history.pop();
+        show(history.at(-1), false);
+      }
+
+      function openDocument(type) {
+        const item = sampleDocuments[type];
+        if (!item) return;
+        document.getElementById('paper-title').textContent = item.title;
+        document.getElementById('paper-field-label').textContent = item.field;
+        document.getElementById('paper-number').textContent = item.number;
+        document.getElementById('paper-issuer').textContent = item.issuer;
+        document.getElementById('viewer-title').textContent = item.title;
+        document.getElementById('viewer-validity').textContent = item.validity;
+        show('document');
+      }
+
+      document.addEventListener('click', (event) => {
+        const target = event.target.closest('button');
+        if (!target) return;
+        if (target.hasAttribute('data-back')) back();
+        else if (target.dataset.go) show(target.dataset.go);
+        else if (target.dataset.doc) openDocument(target.dataset.doc);
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && history.length > 1) { event.preventDefault(); back(); }
+      });
+    })();
+  </script>
+</body>
+</html>
